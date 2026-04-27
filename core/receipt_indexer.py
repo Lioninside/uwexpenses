@@ -27,8 +27,12 @@ _ADOBE_SCAN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Secondary patterns sometimes seen in phone screenshots / downloads:
-#   YYYY-MM-DD_HHMMSS   or   YYYYMMDD_HHMMSS
+# Android/Samsung camera: 20260421_180629  (YYYYMMDD_HHMMSS)
+_ANDROID_PATTERN = re.compile(
+    r"(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})"
+)
+
+# ISO with separators: 2026-04-21_180629  or  2026-04-21-18-06-29
 _ISO_FILENAME_PATTERN = re.compile(
     r"(\d{4})[_-](\d{2})[_-](\d{2})[_-](\d{2})(\d{2})(\d{2})"
 )
@@ -48,7 +52,17 @@ def _parse_date_from_filename(name: str) -> Optional[Tuple[datetime, str]]:
         except ValueError:
             pass
 
-    # 2. ISO-style: YYYY-MM-DD_HHMMSS
+    # 2. Android/Samsung camera: YYYYMMDD_HHMMSS
+    m = _ANDROID_PATTERN.search(stem)
+    if m:
+        year, month, day, hour, minute, second = (int(x) for x in m.groups())
+        try:
+            dt = datetime(year, month, day, hour, minute, second)
+            return dt, "filename (Android)"
+        except ValueError:
+            pass
+
+    # 3. ISO-style with separators: YYYY-MM-DD_HHMMSS
     m = _ISO_FILENAME_PATTERN.search(stem)
     if m:
         year, month, day, hour, minute, second = (int(x) for x in m.groups())
