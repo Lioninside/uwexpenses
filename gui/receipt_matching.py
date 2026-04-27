@@ -217,10 +217,15 @@ class ReceiptMatchingPage(QWidget):
                     days = "  [Gleicher Tag]"
             except Exception:
                 pass
-            used_tag = "  ⚠ bereits verwendet" if cand.get("already_used") else ""
-            text = f"{cand['image_datetime'][:10]}  {cand['original_filename']}{days}{used_tag}"
+            used_tag = "  ! bereits verwendet" if cand.get("already_used") else ""
+            pdf_tag = "  [PDF]" if cand.get("is_pdf") else ""
+            text = (
+                f"{cand['image_datetime'][:10]}  "
+                f"{cand['original_filename']}{pdf_tag}{days}{used_tag}"
+            )
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, cand["working_filename"])
+            item.setData(Qt.ItemDataRole.UserRole + 1, cand.get("is_pdf", False))
             self._candidate_list.addItem(item)
 
         # Pre-select existing match
@@ -254,9 +259,35 @@ class ReceiptMatchingPage(QWidget):
         if not path.exists():
             self._preview_label.setText(f"Datei nicht gefunden:\n{working_name}")
             return
+
+        # PDF receipts: try to render first page, otherwise show info block
+        if path.suffix.lower() == ".pdf":
+            rendered = self._try_render_pdf(path)
+            if rendered:
+                path = rendered
+            else:
+                self._preview_label.setText(
+                    f"PDF-Beleg\n\n{path.name}\n\n"
+                    "Vorschau: poppler installieren\n"
+                    "(pip install pdf2image + poppler)\n\n"
+                    "Beleg wird im Output-PDF als\n"
+                    "Referenz eingebettet."
+                )
+                self._preview_label.setPixmap(QPixmap())  # clear any old image
+                receipt = next(
+                    (r for r in self._session.receipts
+                     if r["working_filename"] == working_name), None
+                )
+                if receipt:
+                    self._preview_info.setText(
+                        f"{receipt['original_filename']}\n"
+                        f"{receipt['image_datetime']}  ({receipt['source']})"
+                    )
+                return
+
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
-            self._preview_label.setText("Bild konnte nicht geladen werden.")
+            self._preview_label.setText("Vorschau nicht verfuegbar.")
             return
         scaled = pixmap.scaled(
             self._preview_label.size(),
@@ -275,13 +306,27 @@ class ReceiptMatchingPage(QWidget):
                 f"{receipt['image_datetime']}  ({receipt['source']})"
             )
 
+    def _try_render_pdf(self, path: Path) -> Optional[Path]:
+        """Render first PDF page to a temp PNG. Returns None if unavailable."""
+        try:
+            from pdf2image import convert_from_path
+            import tempfile
+            pages = convert_from_path(str(path), dpi=120, first_page=1, last_page=1)
+            if pages:
+                tmp = Path(tempfile.mktemp(suffix=".png"))
+                pages[0].save(str(tmp), "PNG")
+                return tmp
+        except Exception:
+            pass
+        return None
+
     def _pick_manual(self) -> None:
         start_dir = ""
         if self._session.output_dir:
             start_dir = str(Path(self._session.output_dir) / "01_working")
         path, _ = QFileDialog.getOpenFileName(
-            self, "Beleg-Datei wählen", start_dir,
-            "Bilder (*.jpg *.jpeg *.png *.JPG *.JPEG *.PNG)"
+            self, "Beleg-Datei waehlen", start_dir,
+            "Belege (*.jpg *.jpeg *.png *.JPG *.JPEG *.PNG *.pdf *.PDF)"
         )
         if not path:
             return
@@ -303,7 +348,8 @@ class ReceiptMatchingPage(QWidget):
                 "working_filename": p.name,
                 "image_datetime": "",
                 "source": "manual",
-                "notes": "Manuell hinzugefügt",
+                "notes": "Manuell hinzugefuegt",
+                "is_pdf": p.suffix.lower() == ".pdf",
             }
             self._session.receipts.append(entry)
             working_name = p.name
