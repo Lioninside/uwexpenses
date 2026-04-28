@@ -16,12 +16,14 @@ class SessionData:
     # Raw + filtered transactions from the PDF (list of dicts)
     all_transactions: List[Dict] = field(default_factory=list)
     transactions: List[Dict] = field(default_factory=list)
+    # Manually entered expenses (same dict shape as transactions, id = "manual_NNN")
+    manual_expenses: List[Dict] = field(default_factory=list)
     # Receipt index (list of dicts from receipt_indexer)
     receipts: List[Dict] = field(default_factory=list)
     # Per-transaction decisions
     # "business" | "private" | "review"
     classifications: Dict[str, str] = field(default_factory=dict)
-    # tx_id -> receipt working_filename or "" for no receipt
+    # tx_id -> receipt working_filename, "__no_receipt__", or "__needs_review__"
     matches: Dict[str, str] = field(default_factory=dict)
     # tx_id -> free-text justification
     justifications: Dict[str, str] = field(default_factory=dict)

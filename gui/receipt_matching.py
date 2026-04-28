@@ -1,27 +1,24 @@
 """
-Step 4: Manual receipt matching.
+Step 4: Receipt matching + manual expenses.
 
-For each business expense, shows:
-  - Transaction details
-  - Suggested receipt matches (sorted by date proximity)
-  - Image preview of selected candidate
-  - Buttons: Confirm match | No receipt | Needs review
-
-Decisions are saved after every confirmation.
+Top half: work through each Revolut business expense, pick a receipt.
+Bottom panel: add/edit/delete manual expenses (cash, non-Revolut, etc.)
+              with direct receipt file selection – no date dependency.
 """
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFileDialog, QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QSizePolicy,
-    QVBoxLayout, QWidget, QProgressBar, QScrollArea, QSplitter,
+    QListWidgetItem, QMessageBox, QPushButton, QSplitter,
+    QVBoxLayout, QWidget, QProgressBar,
 )
 
 import core.storage as storage
 from core.matcher import suggest_matches
+from gui.manual_expense_dialog import ManualExpenseDialog
 
 _NO_RECEIPT = "__no_receipt__"
 _NEEDS_REVIEW = "__needs_review__"
@@ -40,35 +37,36 @@ class ReceiptMatchingPage(QWidget):
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(30, 20, 30, 20)
-        root.setSpacing(12)
+        root.setSpacing(10)
 
         title = QLabel("Schritt 4 – Belege zuordnen")
         title.setObjectName("heading")
         root.addWidget(title)
 
+        # ---- Main splitter: Revolut matching (left) + preview (right) ----
+        top_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # -- Left: transaction + candidates --
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 8, 0)
+        ll.setSpacing(8)
+
+        # Progress
         self._progress = QProgressBar()
-        root.addWidget(self._progress)
+        ll.addWidget(self._progress)
         self._progress_label = QLabel("")
         self._progress_label.setObjectName("status")
         self._progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self._progress_label)
+        ll.addWidget(self._progress_label)
 
-        # Splitter: left = tx info + candidate list, right = image preview
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        # Left panel
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 8, 0)
-        left_layout.setSpacing(10)
-
-        # Transaction info
-        tx_group = QGroupBox("Transaktion")
+        # Transaction card
+        tx_group = QGroupBox("Revolut-Transaktion")
         tg = QVBoxLayout(tx_group)
 
-        def _lbl_row(label: str):
+        def _row(lbl_text):
             row = QHBoxLayout()
-            lbl = QLabel(label)
+            lbl = QLabel(lbl_text)
             lbl.setFixedWidth(110)
             lbl.setStyleSheet("font-weight: bold; color: #555;")
             val = QLabel("")
@@ -78,92 +76,126 @@ class ReceiptMatchingPage(QWidget):
             tg.addLayout(row)
             return val
 
-        self._tx_date = _lbl_row("Datum:")
-        self._tx_desc = _lbl_row("Beschreibung:")
-        self._tx_amount = _lbl_row("Betrag:")
-        left_layout.addWidget(tx_group)
+        self._tx_date = _row("Datum:")
+        self._tx_desc = _row("Beschreibung:")
+        self._tx_amount = _row("Betrag:")
+        ll.addWidget(tx_group)
 
-        # Candidates
-        cand_group = QGroupBox("Beleg-Kandidaten (nach Datum)")
+        # Candidate list
+        cand_group = QGroupBox("Beleg-Kandidaten (nach Datum sortiert)")
         cg = QVBoxLayout(cand_group)
         self._candidate_list = QListWidget()
-        self._candidate_list.setMaximumHeight(200)
+        self._candidate_list.setMaximumHeight(180)
         self._candidate_list.currentItemChanged.connect(self._on_candidate_selected)
         cg.addWidget(self._candidate_list)
-
-        btn_manual = QPushButton("Datei manuell wählen …")
-        btn_manual.clicked.connect(self._pick_manual)
-        cg.addWidget(btn_manual)
-        left_layout.addWidget(cand_group)
+        btn_browse = QPushButton("Andere Datei auswaehlen ...")
+        btn_browse.clicked.connect(self._pick_manual)
+        cg.addWidget(btn_browse)
+        ll.addWidget(cand_group)
 
         # Action buttons
         action_group = QGroupBox("Aktion")
         ag = QHBoxLayout(action_group)
-
-        self._btn_confirm = QPushButton("✓  Beleg bestätigen")
+        self._btn_confirm = QPushButton("Beleg bestaetigen")
         self._btn_confirm.setObjectName("btn_business")
-        self._btn_confirm.setFixedHeight(40)
+        self._btn_confirm.setFixedHeight(38)
         self._btn_confirm.clicked.connect(self._confirm_match)
         ag.addWidget(self._btn_confirm)
-
         self._btn_no_receipt = QPushButton("Kein Beleg")
         self._btn_no_receipt.setObjectName("btn_private")
-        self._btn_no_receipt.setFixedHeight(40)
+        self._btn_no_receipt.setFixedHeight(38)
         self._btn_no_receipt.clicked.connect(self._no_receipt)
         ag.addWidget(self._btn_no_receipt)
-
-        self._btn_needs_review = QPushButton("Prüfen")
+        self._btn_needs_review = QPushButton("Pruefen")
         self._btn_needs_review.setObjectName("btn_review")
-        self._btn_needs_review.setFixedHeight(40)
+        self._btn_needs_review.setFixedHeight(38)
         self._btn_needs_review.clicked.connect(self._needs_review)
         ag.addWidget(self._btn_needs_review)
+        ll.addWidget(action_group)
 
-        left_layout.addWidget(action_group)
-
-        # Nav
+        # Nav row
         nav = QHBoxLayout()
-        self._btn_prev = QPushButton("← Zurück")
+        self._btn_prev = QPushButton("<- Zurueck")
         self._btn_prev.clicked.connect(self._go_prev)
         nav.addWidget(self._btn_prev)
         nav.addStretch()
-        self._btn_next_skip = QPushButton("Überspringen →")
-        self._btn_next_skip.clicked.connect(self._go_next)
-        nav.addWidget(self._btn_next_skip)
-        self._btn_finish = QPushButton("Export erstellen →")
-        self._btn_finish.clicked.connect(self._do_finish)
-        nav.addWidget(self._btn_finish)
-        left_layout.addLayout(nav)
+        self._btn_skip = QPushButton("Ueberspringen ->")
+        self._btn_skip.clicked.connect(self._go_next)
+        nav.addWidget(self._btn_skip)
+        ll.addLayout(nav)
 
-        left_layout.addStretch()
-        splitter.addWidget(left)
+        ll.addStretch()
+        top_splitter.addWidget(left)
 
-        # Right panel – image preview
+        # -- Right: image preview --
         right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(8, 0, 0, 0)
-
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(8, 0, 0, 0)
         preview_group = QGroupBox("Vorschau")
         pg = QVBoxLayout(preview_group)
-        self._preview_label = QLabel("Kein Bild ausgewählt")
+        self._preview_label = QLabel("Kein Bild ausgewaehlt")
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_label.setMinimumSize(300, 400)
-        self._preview_label.setStyleSheet("background: #F0F0F0; border: 1px solid #CCC;")
+        self._preview_label.setMinimumSize(280, 360)
+        self._preview_label.setStyleSheet(
+            "background: #F0F0F0; border: 1px solid #CCC;"
+        )
         pg.addWidget(self._preview_label)
         self._preview_info = QLabel("")
         self._preview_info.setObjectName("status")
         self._preview_info.setWordWrap(True)
         pg.addWidget(self._preview_info)
-        right_layout.addWidget(preview_group)
+        rl.addWidget(preview_group)
+        top_splitter.addWidget(right)
+        top_splitter.setSizes([460, 340])
 
-        splitter.addWidget(right)
-        splitter.setSizes([450, 380])
-        root.addWidget(splitter)
+        root.addWidget(top_splitter, stretch=3)
 
+        # ---- Manual expenses panel ----
+        manual_group = QGroupBox(
+            "Manuelle Spesen  (Barzahlung, andere Karte, Ausgaben ausserhalb Revolut)"
+        )
+        mg = QVBoxLayout(manual_group)
+
+        # List of manual expenses
+        self._manual_list = QListWidget()
+        self._manual_list.setMaximumHeight(130)
+        self._manual_list.setAlternatingRowColors(True)
+        self._manual_list.itemDoubleClicked.connect(self._edit_manual)
+        mg.addWidget(self._manual_list)
+
+        manual_btns = QHBoxLayout()
+        btn_add = QPushButton("+ Spese hinzufuegen")
+        btn_add.setObjectName("btn_business")
+        btn_add.clicked.connect(self._add_manual)
+        manual_btns.addWidget(btn_add)
+        self._btn_edit_manual = QPushButton("Bearbeiten")
+        self._btn_edit_manual.clicked.connect(self._edit_manual)
+        manual_btns.addWidget(self._btn_edit_manual)
+        self._btn_del_manual = QPushButton("Loeschen")
+        self._btn_del_manual.setObjectName("btn_private")
+        self._btn_del_manual.clicked.connect(self._delete_manual)
+        manual_btns.addWidget(self._btn_del_manual)
+        manual_btns.addStretch()
+        mg.addLayout(manual_btns)
+
+        root.addWidget(manual_group, stretch=2)
+
+        # ---- Bottom nav ----
+        bottom_nav = QHBoxLayout()
         self._status_label = QLabel("")
         self._status_label.setObjectName("status")
-        root.addWidget(self._status_label)
+        bottom_nav.addWidget(self._status_label)
+        bottom_nav.addStretch()
+        self._btn_finish = QPushButton("Export erstellen ->")
+        self._btn_finish.setFixedHeight(38)
+        self._btn_finish.clicked.connect(self._do_finish)
+        bottom_nav.addWidget(self._btn_finish)
+        root.addLayout(bottom_nav)
 
     # ------------------------------------------------------------------
+    # Session loading
+    # ------------------------------------------------------------------
+
     def load_session(self, session: storage.SessionData) -> None:
         self._session = session
         self._business_txs = [
@@ -176,18 +208,24 @@ class ReceiptMatchingPage(QWidget):
         ]
         self._current_idx = unmatched[0] if unmatched else 0
         self._refresh()
+        self._refresh_manual_list()
+
+    # ------------------------------------------------------------------
+    # Revolut matching
+    # ------------------------------------------------------------------
 
     def _refresh(self) -> None:
         txs = self._business_txs
         if not txs:
-            self._status_label.setText("Keine Geschäfts-Transaktionen vorhanden.")
+            self._status_label.setText("Keine Revolut-Geschaeftsspesen vorhanden.")
+            self._progress_label.setText("")
             return
 
         n = len(txs)
         matched = sum(1 for tx in txs if tx["id"] in self._session.matches)
         self._progress.setMaximum(n)
         self._progress.setValue(matched)
-        self._progress_label.setText(f"{matched} von {n} zugeordnet")
+        self._progress_label.setText(f"{matched} von {n} Revolut-Spesen zugeordnet")
 
         if self._current_idx >= n:
             self._current_idx = n - 1
@@ -201,55 +239,47 @@ class ReceiptMatchingPage(QWidget):
             if isinstance(amt, float) else str(amt)
         )
 
-        # Fill candidate list
         self._candidate_list.clear()
         candidates = suggest_matches(tx, self._session.receipts, self._session.matches)
-
         for cand in candidates:
-            days = ""
+            days_text = ""
             from datetime import date as _date, datetime
             try:
                 r_dt = datetime.fromisoformat(cand["image_datetime"])
-                tx_dt = _date.fromisoformat(tx["date"])
-                delta = abs((r_dt.date() - tx_dt).days)
-                days = f"  [{delta}T Abstand]"
-                if delta == 0:
-                    days = "  [Gleicher Tag]"
+                delta = abs((r_dt.date() - _date.fromisoformat(tx["date"])).days)
+                days_text = "  [Gleicher Tag]" if delta == 0 else f"  [{delta}T Abstand]"
             except Exception:
                 pass
-            used_tag = "  ! bereits verwendet" if cand.get("already_used") else ""
-            pdf_tag = "  [PDF]" if cand.get("is_pdf") else ""
-            text = (
-                f"{cand['image_datetime'][:10]}  "
-                f"{cand['original_filename']}{pdf_tag}{days}{used_tag}"
+            used = "  ! bereits verwendet" if cand.get("already_used") else ""
+            pdf = "  [PDF]" if cand.get("is_pdf") else ""
+            item = QListWidgetItem(
+                f"{cand['image_datetime'][:10]}  {cand['original_filename']}"
+                f"{pdf}{days_text}{used}"
             )
-            item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, cand["working_filename"])
             item.setData(Qt.ItemDataRole.UserRole + 1, cand.get("is_pdf", False))
             self._candidate_list.addItem(item)
 
-        # Pre-select existing match
+        # Pre-select current match
         current_match = self._session.matches.get(tx["id"], "")
         for i in range(self._candidate_list.count()):
-            item = self._candidate_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == current_match:
+            if self._candidate_list.item(i).data(Qt.ItemDataRole.UserRole) == current_match:
                 self._candidate_list.setCurrentRow(i)
                 break
 
         self._btn_prev.setEnabled(self._current_idx > 0)
         cls = self._session.classifications.get(tx["id"], "")
         self._status_label.setText(
-            f"Transaktion {self._current_idx + 1} von {n}  |  "
-            f"Klassifizierung: {_CLS_LABELS.get(cls, cls)}"
+            f"Revolut {self._current_idx + 1}/{n}  |  "
+            f"{_CLS_LABELS.get(cls, cls)}"
         )
 
     def _on_candidate_selected(self, current: QListWidgetItem, _prev) -> None:
         if not current:
-            self._preview_label.setText("Kein Bild ausgewählt")
+            self._preview_label.setText("Kein Bild ausgewaehlt")
             self._preview_info.setText("")
             return
-        working_name = current.data(Qt.ItemDataRole.UserRole)
-        self._show_preview(working_name)
+        self._show_preview(current.data(Qt.ItemDataRole.UserRole))
 
     def _show_preview(self, working_name: str) -> None:
         if not working_name or not self._session.output_dir:
@@ -260,29 +290,16 @@ class ReceiptMatchingPage(QWidget):
             self._preview_label.setText(f"Datei nicht gefunden:\n{working_name}")
             return
 
-        # PDF receipts: try to render first page, otherwise show info block
         if path.suffix.lower() == ".pdf":
             rendered = self._try_render_pdf(path)
             if rendered:
                 path = rendered
             else:
+                self._preview_label.setPixmap(QPixmap())
                 self._preview_label.setText(
                     f"PDF-Beleg\n\n{path.name}\n\n"
-                    "Vorschau: poppler installieren\n"
-                    "(pip install pdf2image + poppler)\n\n"
-                    "Beleg wird im Output-PDF als\n"
-                    "Referenz eingebettet."
+                    "Vorschau: poppler installieren\n(pip install pdf2image)"
                 )
-                self._preview_label.setPixmap(QPixmap())  # clear any old image
-                receipt = next(
-                    (r for r in self._session.receipts
-                     if r["working_filename"] == working_name), None
-                )
-                if receipt:
-                    self._preview_info.setText(
-                        f"{receipt['original_filename']}\n"
-                        f"{receipt['image_datetime']}  ({receipt['source']})"
-                    )
                 return
 
         pixmap = QPixmap(str(path))
@@ -295,7 +312,7 @@ class ReceiptMatchingPage(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._preview_label.setPixmap(scaled)
-        # Find receipt info
+
         receipt = next(
             (r for r in self._session.receipts if r["working_filename"] == working_name),
             None,
@@ -307,7 +324,6 @@ class ReceiptMatchingPage(QWidget):
             )
 
     def _try_render_pdf(self, path: Path) -> Optional[Path]:
-        """Render first PDF page to a temp PNG. Returns None if unavailable."""
         try:
             from pdf2image import convert_from_path
             import tempfile
@@ -321,16 +337,17 @@ class ReceiptMatchingPage(QWidget):
         return None
 
     def _pick_manual(self) -> None:
-        start_dir = ""
+        start = self._session.folder
         if self._session.output_dir:
-            start_dir = str(Path(self._session.output_dir) / "01_working")
+            w = Path(self._session.output_dir) / "01_working"
+            if w.exists():
+                start = str(w)
         path, _ = QFileDialog.getOpenFileName(
-            self, "Beleg-Datei waehlen", start_dir,
+            self, "Beleg-Datei auswaehlen", start,
             "Belege (*.jpg *.jpeg *.png *.JPG *.JPEG *.PNG *.pdf *.PDF)"
         )
         if not path:
             return
-        # Add as ad-hoc entry if not in index
         p = Path(path)
         existing = next(
             (r for r in self._session.receipts if r["original_filename"] == p.name),
@@ -342,7 +359,7 @@ class ReceiptMatchingPage(QWidget):
             working_dir.mkdir(exist_ok=True)
             dest = working_dir / p.name
             if not dest.exists():
-                shutil.copy2(path, dest)
+                shutil.copy2(path, str(dest))
             entry = {
                 "original_filename": p.name,
                 "working_filename": p.name,
@@ -358,19 +375,18 @@ class ReceiptMatchingPage(QWidget):
 
         item = QListWidgetItem(f"[Manuell]  {p.name}")
         item.setData(Qt.ItemDataRole.UserRole, working_name)
+        item.setData(Qt.ItemDataRole.UserRole + 1, p.suffix.lower() == ".pdf")
         self._candidate_list.insertItem(0, item)
         self._candidate_list.setCurrentRow(0)
 
     def _selected_working_name(self) -> Optional[str]:
         item = self._candidate_list.currentItem()
-        if item:
-            return item.data(Qt.ItemDataRole.UserRole)
-        return None
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _confirm_match(self) -> None:
         name = self._selected_working_name()
         if not name:
-            QMessageBox.information(self, "Info", "Bitte zuerst einen Beleg in der Liste auswählen.")
+            QMessageBox.information(self, "Info", "Bitte zuerst einen Beleg auswaehlen.")
             return
         self._save_match(name)
         self._go_next()
@@ -394,7 +410,7 @@ class ReceiptMatchingPage(QWidget):
             self._refresh()
         else:
             self._status_label.setText(
-                "Alle Geschäfts-Transaktionen bearbeitet. Jetzt Export starten."
+                "Alle Revolut-Spesen bearbeitet. Manuelle Spesen pruefen, dann Export."
             )
             self._refresh()
 
@@ -403,6 +419,97 @@ class ReceiptMatchingPage(QWidget):
             self._current_idx -= 1
             self._refresh()
 
+    # ------------------------------------------------------------------
+    # Manual expenses
+    # ------------------------------------------------------------------
+
+    def _refresh_manual_list(self) -> None:
+        self._manual_list.clear()
+        for exp in self._session.manual_expenses:
+            match = self._session.matches.get(exp["id"], "")
+            if match == _NO_RECEIPT:
+                receipt_text = "Kein Beleg"
+            elif match == _NEEDS_REVIEW:
+                receipt_text = "Pruefen"
+            elif match:
+                receipt_text = match
+            else:
+                receipt_text = "Kein Beleg ausgewaehlt"
+            amt = exp.get("amount", 0)
+            amt_str = f"{abs(amt):.2f}" if isinstance(amt, float) else str(amt)
+            text = (
+                f"{exp['date']}   {exp['description']:<28}   "
+                f"{amt_str} {exp.get('currency','CHF')}   |   {receipt_text}"
+            )
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, exp["id"])
+            self._manual_list.addItem(item)
+
+    def _add_manual(self) -> None:
+        dlg = ManualExpenseDialog(self._session, parent=self)
+        if dlg.exec() and dlg.result_expense:
+            exp = dlg.result_expense
+            self._session.manual_expenses.append(exp)
+            # Save match and justification from dialog
+            if dlg._selected_receipt:
+                self._session.matches[exp["id"]] = dlg._selected_receipt
+            if dlg._justification_text:
+                self._session.justifications[exp["id"]] = dlg._justification_text
+            elif not self._session.justifications.get(exp["id"]):
+                self._session.justifications[exp["id"]] = exp["description"]
+            storage.save(self._session)
+            self._refresh_manual_list()
+
+    def _edit_manual(self, _item=None) -> None:
+        item = self._manual_list.currentItem()
+        if not item:
+            return
+        exp_id = item.data(Qt.ItemDataRole.UserRole)
+        exp = next((e for e in self._session.manual_expenses if e["id"] == exp_id), None)
+        if not exp:
+            return
+        dlg = ManualExpenseDialog(self._session, expense=exp, parent=self)
+        if dlg.exec() and dlg.result_expense:
+            # Replace in list
+            idx = next(
+                i for i, e in enumerate(self._session.manual_expenses)
+                if e["id"] == exp_id
+            )
+            self._session.manual_expenses[idx] = dlg.result_expense
+            if dlg._selected_receipt:
+                self._session.matches[exp_id] = dlg._selected_receipt
+            if dlg._justification_text:
+                self._session.justifications[exp_id] = dlg._justification_text
+            storage.save(self._session)
+            self._refresh_manual_list()
+
+    def _delete_manual(self) -> None:
+        item = self._manual_list.currentItem()
+        if not item:
+            return
+        exp_id = item.data(Qt.ItemDataRole.UserRole)
+        exp = next((e for e in self._session.manual_expenses if e["id"] == exp_id), None)
+        if not exp:
+            return
+        reply = QMessageBox.question(
+            self, "Loeschen",
+            f"Spese '{exp['description']}' loeschen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._session.manual_expenses = [
+                e for e in self._session.manual_expenses if e["id"] != exp_id
+            ]
+            self._session.matches.pop(exp_id, None)
+            self._session.justifications.pop(exp_id, None)
+            self._session.receipt_numbers.pop(exp_id, None)
+            storage.save(self._session)
+            self._refresh_manual_list()
+
+    # ------------------------------------------------------------------
+    # Finish
+    # ------------------------------------------------------------------
+
     def _do_finish(self) -> None:
         unmatched = [
             tx for tx in self._business_txs
@@ -410,9 +517,8 @@ class ReceiptMatchingPage(QWidget):
         ]
         if unmatched:
             reply = QMessageBox.question(
-                self,
-                "Nicht alle zugeordnet",
-                f"{len(unmatched)} Transaktion(en) haben noch keinen Beleg.\n"
+                self, "Nicht alle zugeordnet",
+                f"{len(unmatched)} Revolut-Transaktion(en) haben noch keinen Beleg.\n"
                 "Als 'Kein Beleg' markieren und fortfahren?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
@@ -426,8 +532,4 @@ class ReceiptMatchingPage(QWidget):
         self._on_continue(self._session)
 
 
-_CLS_LABELS = {
-    "business": "Geschäftlich",
-    "private": "Privat",
-    "review": "Prüfen",
-}
+_CLS_LABELS = {"business": "Geschaeftlich", "private": "Privat", "review": "Pruefen"}
