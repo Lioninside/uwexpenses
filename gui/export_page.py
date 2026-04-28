@@ -10,7 +10,7 @@ from typing import Callable, List
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+    QGroupBox, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -157,10 +157,14 @@ class ExportPage(QWidget):
         self._log.setMaximumHeight(160)
         root.addWidget(self._log)
 
-        # Issues
-        self._issues_label = QLabel("")
-        self._issues_label.setWordWrap(True)
-        self._issues_label.setStyleSheet("color: #CC4400;")
+        # Issues – scrollable so long lists don't grow the window
+        self._issues_label = QPlainTextEdit()
+        self._issues_label.setReadOnly(True)
+        self._issues_label.setMaximumHeight(110)
+        self._issues_label.setVisible(False)
+        self._issues_label.setStyleSheet(
+            "color: #CC4400; font-size: 12px; background: #FFF8F5; border: 1px solid #EEA090;"
+        )
         root.addWidget(self._issues_label)
 
         root.addStretch()
@@ -214,7 +218,8 @@ class ExportPage(QWidget):
         self._btn_done.setEnabled(False)
         self._progress.setVisible(True)
         self._log.clear()
-        self._issues_label.setText("")
+        self._issues_label.setPlainText("")
+        self._issues_label.setVisible(False)
 
         self._worker = _ExportWorker(self._session)
         self._worker.progress.connect(self._on_progress)
@@ -233,8 +238,11 @@ class ExportPage(QWidget):
         storage.save(self._session)
 
         if issues:
-            self._issues_label.setText(
+            self._issues_label.setPlainText(
                 "Hinweise / Warnungen:\n" + "\n".join(f"  - {i}" for i in issues)
             )
+            self._issues_label.setVisible(True)
+        else:
+            self._issues_label.setVisible(False)
         self._log.append("Export abgeschlossen.")
         self._log.append(f"Output-Ordner: {self._session.output_dir}")

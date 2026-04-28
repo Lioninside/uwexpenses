@@ -78,14 +78,15 @@ class ReceiptMatchingPage(QWidget):
 
         self._tx_date = _row("Datum:")
         self._tx_desc = _row("Beschreibung:")
-        self._tx_amount = _row("Betrag:")
+        self._tx_amount = _row("Betrag CHF:")
+        self._tx_fee = _row("Gebuehr:")     # non-zero = foreign currency conversion
         ll.addWidget(tx_group)
 
-        # Candidate list
+        # Candidate list – taller so more entries fit
         cand_group = QGroupBox("Beleg-Kandidaten (nach Datum sortiert)")
         cg = QVBoxLayout(cand_group)
         self._candidate_list = QListWidget()
-        self._candidate_list.setMaximumHeight(180)
+        self._candidate_list.setMinimumHeight(220)
         self._candidate_list.currentItemChanged.connect(self._on_candidate_selected)
         cg.addWidget(self._candidate_list)
         btn_browse = QPushButton("Andere Datei auswaehlen ...")
@@ -135,18 +136,22 @@ class ReceiptMatchingPage(QWidget):
         pg = QVBoxLayout(preview_group)
         self._preview_label = QLabel("Kein Bild ausgewaehlt")
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_label.setMinimumSize(280, 360)
+        self._preview_label.setMinimumSize(420, 520)
+        self._preview_label.setSizePolicy(
+            self._preview_label.sizePolicy().horizontalPolicy(),
+            self._preview_label.sizePolicy().verticalPolicy(),
+        )
         self._preview_label.setStyleSheet(
             "background: #F0F0F0; border: 1px solid #CCC;"
         )
-        pg.addWidget(self._preview_label)
+        pg.addWidget(self._preview_label, stretch=1)
         self._preview_info = QLabel("")
         self._preview_info.setObjectName("status")
         self._preview_info.setWordWrap(True)
         pg.addWidget(self._preview_info)
-        rl.addWidget(preview_group)
+        rl.addWidget(preview_group, stretch=1)
         top_splitter.addWidget(right)
-        top_splitter.setSizes([460, 340])
+        top_splitter.setSizes([400, 600])
 
         root.addWidget(top_splitter, stretch=3)
 
@@ -238,6 +243,14 @@ class ReceiptMatchingPage(QWidget):
             f"{amt:.2f} {tx.get('currency','CHF')}"
             if isinstance(amt, float) else str(amt)
         )
+
+        fee = tx.get("fee")
+        if fee and isinstance(fee, float) and fee != 0.0:
+            self._tx_fee.setText(f"{fee:.2f} CHF  (Fremdwaehrungskonvertierung)")
+            self._tx_fee.setStyleSheet("color: #CC6600; font-weight: bold;")
+        else:
+            self._tx_fee.setText("—")
+            self._tx_fee.setStyleSheet("")
 
         self._candidate_list.clear()
         candidates = suggest_matches(tx, self._session.receipts, self._session.matches)
