@@ -1,14 +1,22 @@
 """
-Parse Revolut CSV account statement exports.
+Parse Revolut CSV/XLSX account statement exports.
 
-Real Revolut CSV format (comma-separated, UTF-8):
+Revolut exports a file named .csv which is actually an Excel xlsx
+where every row has a single cell in column A containing a full
+comma-separated line of data. Umlauts are double-encoded
+(UTF-8 bytes stored as Latin-1 chars).
+
+Real columns (comma-separated inside each cell):
   Art, Produkt, Datum des Beginns, Datum des Abschlusses,
   Beschreibung, Betrag, Gebühr, Währung, Status, Kontostand
 
-Amounts are plain numbers (-6.68), currency is a separate column.
+Amounts are plain numbers (-6.68). Currency is a separate column.
+STORNIERT (cancelled) rows are skipped by default.
 """
 import csv
 import io
+import zipfile
+import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -23,6 +31,8 @@ _DATE_FORMATS = [
     "%d.%m.%Y",
     "%d/%m/%Y",
 ]
+
+_SKIP_STATUSES = {"storniert", "declined", "abgelehnt", "failed"}
 
 
 def _parse_date(s: str) -> Optional[date]:
@@ -42,63 +52,58 @@ def _parse_amount(s: str) -> Optional[float]:
     try:
         return float(s)
     except ValueError:
-        pass
-    # European comma decimal fallback
-    s = s.replace(".", "").replace(",", ".")
+        # European comma fallback
+        try:
+            return float(s.replace(".", "").replace(",", "."))
+        except ValueError:
+            return None
+
+
+def _fix_encoding(s: str) -> str:
+    """Fix Revolut's double-encoded umlauts: latin-1 chars → UTF-8."""
     try:
-        return float(s)
-    except ValueError:
-        return None
+        return s.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s
 
 
 # ---------------------------------------------------------------------------
 # Column name → semantic type
-# Handles both correct UTF-8 and garbled latin-1 variants of umlauts
 # ---------------------------------------------------------------------------
 _COL_MAP: Dict[str, str] = {
-    # date
     "datum des beginns": "date",
     "datum des abschlusses": "date_settled",
     "started date": "date",
     "completed date": "date_settled",
     "datum": "date",
     "date": "date",
-    # description
     "beschreibung": "desc",
     "description": "desc",
     "merchant": "desc",
     "name": "desc",
-    # amount
     "betrag": "amount",
     "amount": "amount",
-    # fee
     "gebühr": "fee",
     "gebuehr": "fee",
-    "gebã¼hr": "fee",   # garbled UTF-8 read as latin-1
     "fee": "fee",
-    # currency
     "währung": "currency",
     "waehrung": "currency",
-    "wã¤hrung": "currency",  # garbled
     "currency": "currency",
     "ccy": "currency",
-    # balance
     "kontostand": "balance",
     "saldo": "balance",
     "guthaben": "balance",
     "balance": "balance",
-    # ignore
+    "status": "status",
     "art": "ignore",
     "produkt": "ignore",
-    "status": "ignore",
     "type": "ignore",
     "product": "ignore",
 }
 
 
 def _norm(h: str) -> str:
-    h = h.lower().strip().replace("\n", " ")
-    return _COL_MAP.get(h, "")
+    return _COL_MAP.get(h.lower().strip(), "")
 
 
 def _detect_delimiter(sample: str) -> str:
@@ -107,35 +112,71 @@ def _detect_delimiter(sample: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# xlsx unwrapper (Revolut's actual export format)
+# ---------------------------------------------------------------------------
+
+def _extract_text_from_xlsx(path: str) -> Optional[str]:
+    """
+    Revolut exports .csv files that are actually xlsx files where every
+    row has one cell in column A containing a complete CSV line.
+    Extract those lines and return them as plain text.
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            if "xl/sharedStrings.xml" not in z.namelist():
+                return None
+            ss_xml = z.read("xl/sharedStrings.xml").decode("utf-8")
+            root = ET.fromstring(ss_xml)
+            ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+            rows: List[str] = []
+            for si in root.findall("x:si", ns):
+                t = si.find("x:t", ns)
+                if t is not None and t.text:
+                    rows.append(_fix_encoding(t.text))
+                else:
+                    parts = [
+                        r.find("x:t", ns).text or ""
+                        for r in si.findall("x:r", ns)
+                        if r.find("x:t", ns) is not None
+                    ]
+                    rows.append(_fix_encoding("".join(parts)))
+            return "\n".join(rows) if rows else None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def parse_revolut_csv(csv_path: str) -> Tuple[List[Dict], List[str]]:
     """
-    Parse a Revolut CSV export.
+    Parse a Revolut statement file (.csv or xlsx-disguised-as-csv).
     Returns (transactions, issues).
     """
     transactions: List[Dict] = []
     issues: List[str] = []
 
-    encodings = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
-    text: Optional[str] = None
-    used_enc = ""
+    # Try xlsx unwrap first (Revolut's real format)
+    text = _extract_text_from_xlsx(csv_path)
+    if text:
+        issues_from_detect = []
+    else:
+        # Plain text CSV fallback
+        for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+            try:
+                text = Path(csv_path).read_text(encoding=enc)
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            issues.append("Datei konnte nicht gelesen werden.")
+            return [], issues
 
-    for enc in encodings:
-        try:
-            text = Path(csv_path).read_text(encoding=enc)
-            used_enc = enc
-            break
-        except UnicodeDecodeError:
-            continue
-
-    if text is None:
-        issues.append("CSV-Datei konnte nicht gelesen werden (Encoding-Fehler).")
+    if not text:
+        issues.append("Datei ist leer.")
         return [], issues
-
-    # Normalise line endings so csv module doesn't choke
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
 
     delimiter = _detect_delimiter(text[:2000])
 
@@ -146,10 +187,9 @@ def parse_revolut_csv(csv_path: str) -> Tuple[List[Dict], List[str]]:
         return [], issues
 
     if not reader.fieldnames:
-        issues.append("CSV hat keine Spaltenheader.")
+        issues.append("Keine Spaltenheader gefunden.")
         return [], issues
 
-    # Map raw fieldnames to semantic types
     col_map: Dict[str, str] = {}
     for field in reader.fieldnames:
         sem = _norm(field)
@@ -158,11 +198,13 @@ def parse_revolut_csv(csv_path: str) -> Tuple[List[Dict], List[str]]:
 
     if "date" not in col_map.values() and "date_settled" not in col_map.values():
         issues.append(
-            f"Keine Datumsspalte gefunden. Spalten: {list(reader.fieldnames)}"
+            f"Keine Datumsspalte. Spalten: {list(reader.fieldnames)}"
         )
         return [], issues
 
     tx_id = 0
+    skipped_cancelled = 0
+
     for row in reader:
         if not any(v.strip() for v in row.values() if v):
             continue
@@ -173,15 +215,18 @@ def parse_revolut_csv(csv_path: str) -> Tuple[List[Dict], List[str]]:
                     return (row.get(f) or "").strip()
             return ""
 
-        # Date: prefer "Datum des Beginns" (when you spent), fall back to settled
+        # Skip cancelled/declined transactions
+        status = get("status").lower()
+        if status in _SKIP_STATUSES:
+            skipped_cancelled += 1
+            continue
+
         raw_date = get("date") or get("date_settled")
         tx_date = _parse_date(raw_date)
         if not tx_date:
             continue
 
-        desc = get("desc") or "Unknown"
-
-        # Amount is a plain number in this format
+        desc = _fix_encoding(get("desc") or "Unknown")
         amount = _parse_amount(get("amount"))
         if amount is None:
             continue
@@ -203,7 +248,12 @@ def parse_revolut_csv(csv_path: str) -> Tuple[List[Dict], List[str]]:
         })
         tx_id += 1
 
+    if skipped_cancelled:
+        issues.append(
+            f"{skipped_cancelled} stornierte/abgelehnte Transaktionen wurden uebersprungen."
+        )
+
     if not transactions:
-        issues.append("Keine Transaktionen in der CSV-Datei gefunden.")
+        issues.append("Keine Transaktionen gefunden.")
 
     return transactions, issues

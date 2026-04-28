@@ -7,6 +7,8 @@ from PySide6.QtWidgets import QApplication
 from gui.main_window import MainWindow
 from gui.styles import APP_STYLE
 
+VERSION = "0.2.0"
+
 
 def main() -> None:
     app = QApplication(sys.argv)
@@ -14,7 +16,7 @@ def main() -> None:
     app.setOrganizationName("STC")
     app.setStyleSheet(APP_STYLE)
 
-    window = MainWindow()
+    window = MainWindow(version=VERSION)
     window.show()
     sys.exit(app.exec())
 

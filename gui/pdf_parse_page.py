@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
-    QProgressBar,
+    QProgressBar, QPlainTextEdit,
 )
 
 import core.storage as storage
@@ -29,12 +29,17 @@ class _ParseWorker(QThread):
 
     def run(self) -> None:
         path = Path(self._path)
-        if path.suffix.lower() == ".csv":
+        if path.suffix.lower() in (".csv", ".xlsx", ".xls"):
             txs, issues = parse_revolut_csv(self._path)
             self.finished.emit(txs, issues, "csv")
         else:
-            txs, issues = parse_revolut_pdf(self._path)
-            self.finished.emit(txs, issues, "pdf")
+            # Try CSV parser first (handles xlsx-disguised-as-csv)
+            txs, issues = parse_revolut_csv(self._path)
+            if txs:
+                self.finished.emit(txs, issues, "csv")
+            else:
+                txs, issues = parse_revolut_pdf(self._path)
+                self.finished.emit(txs, issues, "pdf")
 
 
 class PdfParsePage(QWidget):
@@ -112,10 +117,14 @@ class PdfParsePage(QWidget):
         rg.addWidget(self._count_label)
         root.addWidget(result_group)
 
-        # Issues
-        self._issues_label = QLabel("")
-        self._issues_label.setWordWrap(True)
-        self._issues_label.setStyleSheet("color: #CC4400; font-size: 12px;")
+        # Issues – QPlainTextEdit so user can select/copy text
+        self._issues_label = QPlainTextEdit()
+        self._issues_label.setReadOnly(True)
+        self._issues_label.setMaximumHeight(90)
+        self._issues_label.setPlaceholderText("Hinweise erscheinen hier ...")
+        self._issues_label.setStyleSheet(
+            "color: #CC4400; font-size: 12px; background: #FFF8F5; border: 1px solid #EEA090;"
+        )
         root.addWidget(self._issues_label)
 
         # Nav
@@ -162,14 +171,14 @@ class PdfParsePage(QWidget):
         if len(csvs) == 1:
             return csvs[0]
         if len(csvs) > 1:
-            self._issues_label.setText(
+            self._issues_label.setPlainText(
                 f"Mehrere CSV-Dateien gefunden: {[p.name for p in csvs]}. "
                 "Bitte manuell waehlen."
             )
         if len(pdfs) == 1:
             return pdfs[0]
         if len(pdfs) > 1:
-            self._issues_label.setText(
+            self._issues_label.setPlainText(
                 f"Mehrere PDF-Dateien gefunden: {[p.name for p in pdfs]}. "
                 "Bitte manuell waehlen."
             )
@@ -194,7 +203,7 @@ class PdfParsePage(QWidget):
         self._progress.setVisible(True)
         self._btn_parse.setEnabled(False)
         self._btn_continue.setEnabled(False)
-        self._issues_label.setText("")
+        self._issues_label.setPlainText("")
 
         self._worker = _ParseWorker(file_path)
         self._worker.finished.connect(self._on_parse_done)
@@ -205,7 +214,7 @@ class PdfParsePage(QWidget):
         self._btn_parse.setEnabled(True)
 
         if issues:
-            self._issues_label.setText("Hinweise:\n* " + "\n* ".join(issues))
+            self._issues_label.setPlainText("Hinweise:\n* " + "\n* ".join(issues))
 
         from datetime import date as _date
         start = _date.fromisoformat(self._session.start_date)

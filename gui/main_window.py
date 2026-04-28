@@ -34,12 +34,18 @@ _PAGE_DONE = 6
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, version: str = "") -> None:
         super().__init__()
-        self.setWindowTitle("UwExpenses – Monatliche Spesenabrechnung")
+        self._version = version
+        title = f"UwExpenses v{version}" if version else "UwExpenses"
+        self.setWindowTitle(f"{title} – Monatliche Spesenabrechnung")
         self.resize(1000, 720)
         self._setup_pages()
         self._status_bar = QStatusBar()
+        # Persistent version label on the right of the status bar
+        version_lbl = QLabel(f" v{version} " if version else "")
+        version_lbl.setStyleSheet("color: #888; font-size: 11px;")
+        self._status_bar.addPermanentWidget(version_lbl)
         self.setStatusBar(self._status_bar)
 
     def _setup_pages(self) -> None:
