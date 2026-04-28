@@ -12,7 +12,7 @@ Pages (in order):
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QLabel, QMainWindow, QStackedWidget, QStatusBar, QWidget,
+    QLabel, QMainWindow, QScrollArea, QStackedWidget, QStatusBar, QWidget,
 )
 
 import core.storage as storage
@@ -39,7 +39,8 @@ class MainWindow(QMainWindow):
         self._version = version
         title = f"UwExpenses v{version}" if version else "UwExpenses"
         self.setWindowTitle(f"{title} – Monatliche Spesenabrechnung")
-        self.resize(1000, 720)
+        self.resize(960, 660)
+        self.setMinimumSize(700, 480)
         self._setup_pages()
         self._status_bar = QStatusBar()
         # Persistent version label on the right of the status bar
@@ -47,6 +48,16 @@ class MainWindow(QMainWindow):
         version_lbl.setStyleSheet("color: #888; font-size: 11px;")
         self._status_bar.addPermanentWidget(version_lbl)
         self.setStatusBar(self._status_bar)
+
+    @staticmethod
+    def _scrolled(page: QWidget) -> QScrollArea:
+        """Wrap a page in a frameless, width-resizable scroll area."""
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QScrollArea.Shape.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        sa.setWidget(page)
+        return sa
 
     def _setup_pages(self) -> None:
         self._stack = QStackedWidget()
@@ -69,7 +80,7 @@ class MainWindow(QMainWindow):
             self._page_export,
             self._page_done,
         ]:
-            self._stack.addWidget(page)
+            self._stack.addWidget(self._scrolled(page))
 
         self._stack.setCurrentIndex(_PAGE_START)
 

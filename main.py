@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 from gui.main_window import MainWindow
 from gui.styles import APP_STYLE
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 
 def main() -> None:
