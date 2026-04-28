@@ -96,22 +96,40 @@ class ReceiptMatchingPage(QWidget):
 
         # Action buttons
         action_group = QGroupBox("Aktion")
-        ag = QHBoxLayout(action_group)
+        ag = QVBoxLayout(action_group)
+        btn_row1 = QHBoxLayout()
         self._btn_confirm = QPushButton("Beleg bestaetigen")
         self._btn_confirm.setObjectName("btn_business")
         self._btn_confirm.setFixedHeight(38)
         self._btn_confirm.clicked.connect(self._confirm_match)
-        ag.addWidget(self._btn_confirm)
+        btn_row1.addWidget(self._btn_confirm)
         self._btn_no_receipt = QPushButton("Kein Beleg")
         self._btn_no_receipt.setObjectName("btn_private")
         self._btn_no_receipt.setFixedHeight(38)
         self._btn_no_receipt.clicked.connect(self._no_receipt)
-        ag.addWidget(self._btn_no_receipt)
+        btn_row1.addWidget(self._btn_no_receipt)
         self._btn_needs_review = QPushButton("Pruefen")
         self._btn_needs_review.setObjectName("btn_review")
         self._btn_needs_review.setFixedHeight(38)
         self._btn_needs_review.clicked.connect(self._needs_review)
-        ag.addWidget(self._btn_needs_review)
+        btn_row1.addWidget(self._btn_needs_review)
+        ag.addLayout(btn_row1)
+
+        # Correction: reclassify back to private if Step 3 was wrong
+        btn_row2 = QHBoxLayout()
+        self._btn_reclassify_private = QPushButton(
+            "Korrektur: Als Privat markieren (entfernt aus Abrechnung)"
+        )
+        self._btn_reclassify_private.setFixedHeight(30)
+        self._btn_reclassify_private.setStyleSheet(
+            "font-size: 11px; color: #666; background: #F5F5F5; border: 1px solid #CCC;"
+        )
+        self._btn_reclassify_private.clicked.connect(self._reclassify_private)
+        btn_row2.addStretch()
+        btn_row2.addWidget(self._btn_reclassify_private)
+        btn_row2.addStretch()
+        ag.addLayout(btn_row2)
+
         ll.addWidget(action_group)
 
         # Nav row
@@ -411,6 +429,32 @@ class ReceiptMatchingPage(QWidget):
     def _needs_review(self) -> None:
         self._save_match(_NEEDS_REVIEW)
         self._go_next()
+
+    def _reclassify_private(self) -> None:
+        if not self._business_txs:
+            return
+        tx = self._business_txs[self._current_idx]
+        reply = QMessageBox.question(
+            self,
+            "Korrektur bestaetigen",
+            f"Transaktion «{tx.get('description', '')}» ({tx.get('date', '')}) "
+            f"als Privat markieren?\nSie wird aus der Spesenabrechnung entfernt.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Update classification and remove any match
+        self._session.classifications[tx["id"]] = "private"
+        self._session.matches.pop(tx["id"], None)
+        storage.save(self._session)
+        # Rebuild the business list and stay at the same position
+        self._business_txs = [
+            t for t in self._session.transactions
+            if self._session.classifications.get(t["id"]) in ("business", "review")
+        ]
+        if self._current_idx >= len(self._business_txs):
+            self._current_idx = max(0, len(self._business_txs) - 1)
+        self._refresh()
 
     def _save_match(self, value: str) -> None:
         tx = self._business_txs[self._current_idx]
