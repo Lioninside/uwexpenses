@@ -14,13 +14,13 @@ def suggest_matches(
     transaction: Dict,
     receipts: List[Dict],
     already_matched: Dict[str, str],
-    top_n: int = 5,
+    top_n: int = 5,  # kept for API compatibility, no longer used
 ) -> List[Dict]:
     """
-    Return receipt candidates sorted by date proximity to *transaction*.
+    Return ALL receipts sorted by date proximity to *transaction*.
 
-    All receipts within 7 days are always returned (no cap).
-    Receipts outside the 7-day window are capped at *top_n*.
+    Receipts within 7 days come first (sorted closest first).
+    Receipts outside 7 days follow (sorted by date).
     Each dict gets a "score" key and an "already_used" flag.
     """
     tx_date = _tx_date(transaction)
@@ -49,12 +49,12 @@ def suggest_matches(
         if score > 0:
             in_window.append((score, candidate))
         else:
-            out_window.append((score, candidate))
+            out_window.append((days_diff, candidate))
 
     in_window.sort(key=lambda x: (-x[0], x[1]["image_datetime"]))
-    out_window.sort(key=lambda x: x[1]["image_datetime"])
+    out_window.sort(key=lambda x: x[0])  # closest outside window first
 
-    return [r for _, r in in_window] + [r for _, r in out_window[:top_n]]
+    return [r for _, r in in_window] + [r for _, r in out_window]
 
 
 def _tx_date(tx: Dict) -> Optional[date]:
