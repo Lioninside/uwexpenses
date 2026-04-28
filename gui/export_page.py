@@ -90,10 +90,13 @@ class _ExportWorker(QThread):
 
 
 def _business_transactions(s: storage.SessionData) -> list:
-    return [
+    revolut = [
         tx for tx in s.transactions
         if s.classifications.get(tx["id"]) in ("business", "review")
     ]
+    # Manual expenses are always business – merge and sort by date
+    combined = revolut + list(s.manual_expenses)
+    return sorted(combined, key=lambda tx: tx.get("date", ""))
 
 
 def _assign_receipt_numbers(s: storage.SessionData, business_txs: list) -> None:
@@ -187,6 +190,7 @@ class ExportPage(QWidget):
                        if s.classifications.get(tx["id"]) == "review")
         n_private = sum(1 for tx in s.transactions
                         if s.classifications.get(tx["id"]) == "private")
+        n_manual = len(s.manual_expenses)
         n_receipts = len(s.receipts)
         n_matched = sum(
             1 for tx in s.transactions
@@ -195,10 +199,11 @@ class ExportPage(QWidget):
         )
         out = s.output_dir or "(noch nicht erstellt)"
         self._summary_label.setText(
-            f"Transaktionen gesamt:  {n_total}\n"
+            f"Revolut-Transaktionen: {n_total}\n"
             f"  Geschaeftlich:       {n_business}\n"
             f"  Pruefen:             {n_review}\n"
             f"  Privat:              {n_private}\n"
+            f"Manuelle Spesen:       {n_manual}\n"
             f"Belege indexiert:      {n_receipts}\n"
             f"Belege zugeordnet:     {n_matched}\n"
             f"\nOutput-Ordner:  {out}"
