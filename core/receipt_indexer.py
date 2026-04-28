@@ -16,6 +16,8 @@ from typing import List, Dict, Optional, Tuple
 
 from PIL import Image, ExifTags
 
+from core.ocr_extractor import extract_amounts, ocr_available
+
 RECEIPT_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf"}
 
 _EXIF_DATE_FIELDS = ["DateTimeOriginal", "DateTime", "DateTimeDigitized"]
@@ -101,7 +103,11 @@ def _file_mtime(path: Path) -> Tuple[datetime, str]:
     return datetime.fromtimestamp(path.stat().st_mtime), "file mtime"
 
 
-def index_receipts(folder: Path, working_dir: Path) -> Tuple[List[Dict], List[str]]:
+def index_receipts(
+    folder: Path,
+    working_dir: Path,
+    run_ocr: bool = False,
+) -> Tuple[List[Dict], List[str]]:
     """
     Scan *folder* for receipt files, copy working copies to *working_dir*.
 
@@ -163,6 +169,13 @@ def index_receipts(folder: Path, working_dir: Path) -> Tuple[List[Dict], List[st
                 notes = f"Kopieren fehlgeschlagen: {exc}"
                 issues.append(f"{orig_path.name}: {notes}")
 
+        ocr_amounts: List[float] = []
+        if run_ocr:
+            try:
+                ocr_amounts = extract_amounts(working_path if working_path.exists() else orig_path)
+            except Exception:
+                pass
+
         index.append({
             "original_filename": orig_path.name,
             "working_filename": working_name,
@@ -170,6 +183,7 @@ def index_receipts(folder: Path, working_dir: Path) -> Tuple[List[Dict], List[st
             "source": source,
             "notes": notes,
             "is_pdf": is_pdf,
+            "ocr_amounts": ocr_amounts,
         })
 
     return index, issues

@@ -1,10 +1,13 @@
 """
 Suggest receipt matches for each business expense transaction.
 
-Matching strategy (v1, no OCR):
-  - Score receipts by proximity of their image_datetime to the transaction date.
-  - Closer = higher score.
-  - Return top-N candidates sorted by score.
+Combined scoring (v2):
+  date_score   = max(0, 7 - days_diff)      →  0–7 pts
+  amount_score = 10 if exact match (±0.01)  →  0 or 10 pts
+               =  3 if close  match (±0.50)
+
+Results are sorted by combined score descending, then by date proximity.
+All receipts are returned (no cap) so nothing is ever hidden.
 """
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
@@ -14,47 +17,54 @@ def suggest_matches(
     transaction: Dict,
     receipts: List[Dict],
     already_matched: Dict[str, str],
-    top_n: int = 5,  # kept for API compatibility, no longer used
+    top_n: int = 5,  # kept for API compatibility, not used
 ) -> List[Dict]:
     """
-    Return ALL receipts sorted by date proximity to *transaction*.
-
-    Receipts within 7 days come first (sorted closest first).
-    Receipts outside 7 days follow (sorted by date).
-    Each dict gets a "score" key and an "already_used" flag.
+    Return ALL receipts sorted by combined date + amount score.
+    Each dict gains: score, date_score, amount_score, amount_matched, already_used.
     """
     tx_date = _tx_date(transaction)
-    if tx_date is None:
-        return []
-
+    tx_amount = abs(float(transaction.get("amount") or 0))
     used_receipts = set(already_matched.values()) - {""}
 
-    in_window: List[Tuple[float, Dict]] = []
-    out_window: List[Tuple[float, Dict]] = []
+    scored: List[Tuple[int, int, Dict]] = []  # (total_score, days_diff, candidate)
 
     for receipt in receipts:
+        # --- date score ---
+        days_diff = 9999
         try:
             r_dt = datetime.fromisoformat(receipt["image_datetime"])
-            r_date = r_dt.date()
+            if tx_date:
+                days_diff = abs((r_dt.date() - tx_date).days)
         except (ValueError, KeyError):
-            continue
+            pass
+        date_score = max(0, 7 - days_diff) if days_diff < 9999 else 0
 
-        days_diff = abs((r_date - tx_date).days)
-        score = max(0, 7 - days_diff)
+        # --- amount score ---
+        amount_score = 0
+        amount_matched = False
+        if tx_amount > 0:
+            for ocr_amt in receipt.get("ocr_amounts", []):
+                diff = abs(float(ocr_amt) - tx_amount)
+                if diff <= 0.01:
+                    amount_score = 10
+                    amount_matched = True
+                    break
+                elif diff <= 0.50:
+                    amount_score = max(amount_score, 3)
+
+        total_score = date_score + amount_score
 
         candidate = dict(receipt)
-        candidate["score"] = score
+        candidate["score"] = total_score
+        candidate["date_score"] = date_score
+        candidate["amount_score"] = amount_score
+        candidate["amount_matched"] = amount_matched
         candidate["already_used"] = receipt["working_filename"] in used_receipts
+        scored.append((total_score, days_diff, candidate))
 
-        if score > 0:
-            in_window.append((score, candidate))
-        else:
-            out_window.append((days_diff, candidate))
-
-    in_window.sort(key=lambda x: (-x[0], x[1]["image_datetime"]))
-    out_window.sort(key=lambda x: x[0])  # closest outside window first
-
-    return [r for _, r in in_window] + [r for _, r in out_window]
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [r for _, _, r in scored]
 
 
 def _tx_date(tx: Dict) -> Optional[date]:

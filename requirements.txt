@@ -11,3 +11,11 @@ python-dateutil>=2.8.0
 #   macOS:   brew install poppler
 #   Linux:   sudo apt install poppler-utils
 # pdf2image>=1.16.0
+
+# Optional: OCR-based amount extraction in Step 3 (better receipt matching in Step 4)
+# easyocr  – pure Python, no system install needed, downloads ~1.5 GB model on first use:
+#   pip install easyocr
+# Alternative: pytesseract requires Tesseract installed system-wide:
+#   pip install pytesseract
+# easyocr>=1.7.0
+# pytesseract>=0.3.10

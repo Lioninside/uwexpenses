@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog, QGroupBox, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton, QSplitter,
@@ -283,10 +283,17 @@ class ReceiptMatchingPage(QWidget):
                 pass
             used = "  ! bereits verwendet" if cand.get("already_used") else ""
             pdf = "  [PDF]" if cand.get("is_pdf") else ""
+            amt_tag = ""
+            if cand.get("amount_matched"):
+                amt_tag = "  [Betrag OK]"
+            elif cand.get("amount_score", 0) > 0:
+                amt_tag = "  [Betrag ~]"
             item = QListWidgetItem(
                 f"{cand['image_datetime'][:10]}  {cand['original_filename']}"
-                f"{pdf}{days_text}{used}"
+                f"{pdf}{days_text}{amt_tag}{used}"
             )
+            if cand.get("amount_matched"):
+                item.setForeground(QColor(0x00, 0x88, 0x00))
             item.setData(Qt.ItemDataRole.UserRole, cand["working_filename"])
             item.setData(Qt.ItemDataRole.UserRole + 1, cand.get("is_pdf", False))
             self._candidate_list.addItem(item)
