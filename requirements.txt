@@ -3,19 +3,22 @@ pdfplumber>=0.10.0
 openpyxl>=3.1.0
 Pillow>=10.0.0
 reportlab>=4.0.0
-python-dateutil>=2.8.0
 
-# Optional: enables PDF receipt preview in the output PDF
-# Requires poppler to be installed:
+# ── Optional features ─────────────────────────────────────────────────────────
+
+# PDF receipt preview (Step 3 preview + exported receipt PDF):
+#   Requires poppler binaries in addition to the pip package.
 #   Windows: https://github.com/oschwartz10612/poppler-windows/releases
+#            extract and add the bin/ folder to PATH
 #   macOS:   brew install poppler
 #   Linux:   sudo apt install poppler-utils
 # pdf2image>=1.16.0
 
-# Optional: OCR-based amount extraction in Step 3 (better receipt matching in Step 4)
-# easyocr  – pure Python, no system install needed, downloads ~1.5 GB model on first use:
-#   pip install easyocr
-# Alternative: pytesseract requires Tesseract installed system-wide:
-#   pip install pytesseract
+# OCR amount extraction (Step 2 indexing → better receipt matching in Step 3):
+#   easyocr  – pure Python, no system install, downloads ~1.5 GB model on first use
 # easyocr>=1.7.0
+#
+#   pytesseract  – lighter alternative; requires Tesseract installed system-wide
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+#   Linux:   sudo apt install tesseract-ocr tesseract-ocr-deu
 # pytesseract>=0.3.10

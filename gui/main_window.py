@@ -87,9 +87,8 @@ class MainWindow(QMainWindow):
 
     def _go_pdf(self, session: storage.SessionData) -> None:
         step = session.step
-        if step in ("receipts", "review", "export", "done",
-                    # backward compat with old step names
-                    "classify", "receipts", "match"):
+        # "classify" and "match" are old step names from pre-v0.5 sessions
+        if step in ("receipts", "review", "export", "done", "classify", "match"):
             self._resume_session(session)
             return
         self._page_pdf.load_session(session)

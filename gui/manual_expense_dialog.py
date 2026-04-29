@@ -7,8 +7,9 @@ the user picks the receipt file directly.
 """
 import shutil
 import uuid
+from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
@@ -18,9 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 import core.storage as storage
-
-_NO_RECEIPT = "__no_receipt__"
-_NEEDS_REVIEW = "__needs_review__"
+from core.constants import NEEDS_REVIEW, NO_RECEIPT
 
 _CURRENCIES = ["CHF", "EUR", "USD", "GBP", "SEK", "DKK", "NOK"]
 
@@ -126,7 +125,7 @@ class ManualExpenseDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _load_expense(self, expense: Dict) -> None:
-        from datetime import date
+
         try:
             d = date.fromisoformat(expense["date"])
             self._date_edit.setDate(QDate(d.year, d.month, d.day))
@@ -147,10 +146,10 @@ class ManualExpenseDialog(QDialog):
         self._update_receipt_label(matched)
 
     def _update_receipt_label(self, value: str) -> None:
-        if value == _NO_RECEIPT:
+        if value == NO_RECEIPT:
             self._receipt_label.setText("Kein Beleg vorhanden")
             self._receipt_label.setStyleSheet("color: #888;")
-        elif value == _NEEDS_REVIEW:
+        elif value == NEEDS_REVIEW:
             self._receipt_label.setText("Noch unklar / pruefen")
             self._receipt_label.setStyleSheet("color: #E07B00;")
         elif value:
@@ -208,12 +207,12 @@ class ManualExpenseDialog(QDialog):
         return src.name
 
     def _set_no_receipt(self) -> None:
-        self._selected_receipt = _NO_RECEIPT
-        self._update_receipt_label(_NO_RECEIPT)
+        self._selected_receipt = NO_RECEIPT
+        self._update_receipt_label(NO_RECEIPT)
 
     def _set_needs_review(self) -> None:
-        self._selected_receipt = _NEEDS_REVIEW
-        self._update_receipt_label(_NEEDS_REVIEW)
+        self._selected_receipt = NEEDS_REVIEW
+        self._update_receipt_label(NEEDS_REVIEW)
 
     def _on_ok(self) -> None:
         # Validate
@@ -229,7 +228,7 @@ class ManualExpenseDialog(QDialog):
             return
 
         qd = self._date_edit.date()
-        from datetime import date
+
         tx_date = date(qd.year(), qd.month(), qd.day())
 
         # Preserve existing ID when editing

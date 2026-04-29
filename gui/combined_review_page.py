@@ -7,11 +7,13 @@ Replaces the old separate Step 2 (classify) + Step 4 (match) pages.
 
 Button logic
 ------------
-  Privat                  → classification=private, no receipt, next
-  Pruefen                 → classification=review,  no receipt, next
+  Privat                    → classification=private, no receipt, next
+  Pruefen                   → classification=review,  no receipt, next
   Geschaeftlich: Kein Beleg → classification=business, match=NO_RECEIPT, next
   Geschaeftlich + Beleg     → classification=business, match=<selected>, next
 """
+import shutil
+from datetime import date as _date, datetime as _datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -24,11 +26,9 @@ from PySide6.QtWidgets import (
 )
 
 import core.storage as storage
+from core.constants import NEEDS_REVIEW, NO_RECEIPT
 from core.matcher import suggest_matches
 from gui.manual_expense_dialog import ManualExpenseDialog
-
-_NO_RECEIPT = "__no_receipt__"
-_NEEDS_REVIEW = "__needs_review__"
 
 
 def _row_widget(label_text: str, layout: QVBoxLayout):
@@ -247,8 +247,7 @@ class CombinedReviewPage(QWidget):
         tx = txs[self._current_idx]
 
         try:
-            from datetime import datetime as _dt
-            d = _dt.fromisoformat(tx["date"])
+            d = _datetime.fromisoformat(tx["date"])
             self._tx_date.setText(f"{tx['date']}  {d.strftime('%A')}")
         except Exception:
             self._tx_date.setText(tx.get("date", ""))
@@ -287,8 +286,7 @@ class CombinedReviewPage(QWidget):
                 days_text = ""
                 date_str = cand["image_datetime"][:10]
                 try:
-                    from datetime import date as _date, datetime
-                    r_dt = datetime.fromisoformat(cand["image_datetime"])
+                    r_dt = _datetime.fromisoformat(cand["image_datetime"])
                     weekday = r_dt.strftime("%a")  # Mon, Tue, …
                     date_str = f"{cand['image_datetime'][:10]} {weekday}"
                     delta = abs((r_dt.date() - _date.fromisoformat(tx["date"])).days)
@@ -408,10 +406,10 @@ class CombinedReviewPage(QWidget):
         self._save_and_advance("private", None)
 
     def _mark_review(self) -> None:
-        self._save_and_advance("review", _NEEDS_REVIEW)
+        self._save_and_advance("review", NEEDS_REVIEW)
 
     def _mark_business_no_receipt(self) -> None:
-        self._save_and_advance("business", _NO_RECEIPT)
+        self._save_and_advance("business", NO_RECEIPT)
 
     def _mark_business_with_receipt(self) -> None:
         name = self._selected_working_name()
@@ -485,8 +483,8 @@ class CombinedReviewPage(QWidget):
         for exp in self._session.manual_expenses:
             match = self._session.matches.get(exp["id"], "")
             receipt_text = (
-                "Kein Beleg" if match == _NO_RECEIPT else
-                "Pruefen"   if match == _NEEDS_REVIEW else
+                "Kein Beleg" if match == NO_RECEIPT else
+                "Pruefen"   if match == NEEDS_REVIEW else
                 match       if match else
                 "Kein Beleg ausgewaehlt"
             )

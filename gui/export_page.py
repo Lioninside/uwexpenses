@@ -1,12 +1,11 @@
 """
-Step 5: Generate outputs – Excel + receipt PDF.
+Step 4: Generate outputs – Excel + receipt PDF.
 
 Assigns receipt numbers, runs both exporters, shows results.
 """
-import shutil
 from datetime import date
 from pathlib import Path
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -15,12 +14,9 @@ from PySide6.QtWidgets import (
 )
 
 import core.storage as storage
+from core.constants import NEEDS_REVIEW, NO_RECEIPT
 from core.excel_exporter import create_excel
 from core.receipt_pdf_exporter import create_receipt_pdf
-
-_NO_RECEIPT = "__no_receipt__"
-_NEEDS_REVIEW = "__needs_review__"
-
 
 class _ExportWorker(QThread):
     progress = Signal(str)
@@ -107,7 +103,7 @@ def _assign_receipt_numbers(s: storage.SessionData, business_txs: list) -> None:
         s.receipt_numbers[tx["id"]] = f"R{i:03d}"
 
 
-def _find_template(folder: Path) -> Path | None:
+def _find_template(folder: Path) -> Optional[Path]:
     for p in folder.iterdir():
         if p.suffix.lower() in (".xlsx", ".xls") and "template" in p.name.lower():
             return p
@@ -198,7 +194,7 @@ class ExportPage(QWidget):
         n_receipts = len(s.receipts)
         n_matched = sum(
             1 for tx in s.transactions
-            if s.matches.get(tx["id"]) not in (None, "", _NO_RECEIPT, _NEEDS_REVIEW)
+            if s.matches.get(tx["id"]) not in (None, "", NO_RECEIPT, NEEDS_REVIEW)
             and s.classifications.get(tx["id"]) in ("business", "review")
         )
         out = s.output_dir or "(noch nicht erstellt)"
