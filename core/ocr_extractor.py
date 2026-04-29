@@ -16,6 +16,7 @@ Amount strategy:
   - Also check the 1-2 lines below each keyword line (layout can split them)
   - Return a deduplicated list of candidate amounts (most likely total first)
 """
+import importlib.util
 import re
 from pathlib import Path
 from typing import List, Optional
@@ -175,15 +176,9 @@ def extract_amounts(path: Path) -> List[float]:
 
 
 def ocr_available() -> str:
-    """Return which OCR backend is available: 'easyocr', 'tesseract', 'pdf_only', or 'none'."""
-    try:
-        import easyocr  # noqa: F401
+    """Return which OCR backend is installed — without importing it (avoids slow startup)."""
+    if importlib.util.find_spec("easyocr") is not None:
         return "easyocr"
-    except ImportError:
-        pass
-    try:
-        import pytesseract  # noqa: F401
+    if importlib.util.find_spec("pytesseract") is not None:
         return "tesseract"
-    except ImportError:
-        pass
     return "pdf_only"
