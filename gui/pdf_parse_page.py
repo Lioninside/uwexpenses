@@ -56,7 +56,7 @@ class PdfParsePage(QWidget):
         root.setContentsMargins(40, 24, 40, 24)
         root.setSpacing(16)
 
-        title = QLabel("Schritt 1 – Revolut-Auszug einlesen")
+        title = QLabel("Schritt 1 – Revolut-Auszug einlesen (dann Belege in Schritt 2)")
         title.setObjectName("heading")
         root.addWidget(title)
 
@@ -261,6 +261,6 @@ class PdfParsePage(QWidget):
         self._table.resizeColumnsToContents()
 
     def _do_continue(self) -> None:
-        self._session.step = "classify"
+        self._session.step = "receipts"
         storage.save(self._session)
         self._on_continue(self._session)

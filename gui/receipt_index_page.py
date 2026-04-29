@@ -48,7 +48,7 @@ class ReceiptIndexPage(QWidget):
         root.setContentsMargins(40, 24, 40, 24)
         root.setSpacing(16)
 
-        title = QLabel("Schritt 3 – Belege indexieren")
+        title = QLabel("Schritt 2 – Belege indexieren")
         title.setObjectName("heading")
         root.addWidget(title)
 
@@ -207,6 +207,6 @@ class ReceiptIndexPage(QWidget):
         )
 
     def _do_continue(self) -> None:
-        self._session.step = "match"
+        self._session.step = "review"
         storage.save(self._session)
         self._on_continue(self._session)
