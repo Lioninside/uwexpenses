@@ -103,6 +103,26 @@ def _file_mtime(path: Path) -> Tuple[datetime, str]:
     return datetime.fromtimestamp(path.stat().st_mtime), "file mtime"
 
 
+def _copy_image_exif_corrected(src: Path, dst: Path) -> None:
+    """
+    Copy an image to dst with EXIF rotation applied so every downstream
+    consumer (preview, PDF export) sees the correct orientation.
+    Falls back to plain copy if Pillow can't open the file.
+    """
+    try:
+        from PIL import ImageOps
+        img = Image.open(src)
+        img = ImageOps.exif_transpose(img)
+        # Preserve format; JPEG quality 95 keeps visual fidelity
+        fmt = img.format or (
+            "JPEG" if src.suffix.lower() in (".jpg", ".jpeg") else "PNG"
+        )
+        save_kw = {"quality": 95} if fmt == "JPEG" else {}
+        img.save(str(dst), format=fmt, **save_kw)
+    except Exception:
+        shutil.copy2(str(src), str(dst))
+
+
 def index_receipts(
     folder: Path,
     working_dir: Path,
@@ -164,7 +184,10 @@ def index_receipts(
             notes = "Bereits in Arbeitsordner vorhanden"
         else:
             try:
-                shutil.copy2(str(orig_path), str(working_path))
+                if not is_pdf:
+                    _copy_image_exif_corrected(orig_path, working_path)
+                else:
+                    shutil.copy2(str(orig_path), str(working_path))
             except Exception as exc:
                 notes = f"Kopieren fehlgeschlagen: {exc}"
                 issues.append(f"{orig_path.name}: {notes}")
