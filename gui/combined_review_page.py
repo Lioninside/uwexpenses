@@ -246,7 +246,12 @@ class CombinedReviewPage(QWidget):
 
         tx = txs[self._current_idx]
 
-        self._tx_date.setText(tx.get("date", ""))
+        try:
+            from datetime import datetime as _dt
+            d = _dt.fromisoformat(tx["date"])
+            self._tx_date.setText(f"{tx['date']}  {d.strftime('%A')}")
+        except Exception:
+            self._tx_date.setText(tx.get("date", ""))
         self._tx_desc.setText(tx.get("description", ""))
         amt = tx.get("amount", 0)
         self._tx_amount.setText(
@@ -280,14 +285,17 @@ class CombinedReviewPage(QWidget):
             candidates = suggest_matches(tx, self._session.receipts, self._session.matches)
             for cand in candidates:
                 days_text = ""
+                date_str = cand["image_datetime"][:10]
                 try:
                     from datetime import date as _date, datetime
                     r_dt = datetime.fromisoformat(cand["image_datetime"])
+                    weekday = r_dt.strftime("%a")  # Mon, Tue, …
+                    date_str = f"{cand['image_datetime'][:10]} {weekday}"
                     delta = abs((r_dt.date() - _date.fromisoformat(tx["date"])).days)
                     days_text = "  [Gleicher Tag]" if delta == 0 else f"  [{delta}T Abstand]"
                 except Exception:
                     pass
-                used = "  ! bereits verwendet" if cand.get("already_used") else ""
+                used_prefix = "!USED  " if cand.get("already_used") else ""
                 pdf_tag = "  [PDF]" if cand.get("is_pdf") else ""
                 amt_tag = ""
                 if cand.get("amount_matched"):
@@ -295,12 +303,14 @@ class CombinedReviewPage(QWidget):
                 elif cand.get("amount_score", 0) > 0:
                     amt_tag = "  [Betrag ~]"
                 item = QListWidgetItem(
-                    f"{cand['image_datetime'][:10]}  {cand['original_filename']}"
-                    f"{pdf_tag}{days_text}{amt_tag}{used}"
+                    f"{used_prefix}{date_str}  {cand['original_filename']}"
+                    f"{pdf_tag}{days_text}{amt_tag}"
                 )
                 item.setData(Qt.ItemDataRole.UserRole, cand["working_filename"])
                 item.setData(Qt.ItemDataRole.UserRole + 1, cand.get("is_pdf", False))
-                if cand.get("amount_matched"):
+                if cand.get("already_used"):
+                    item.setForeground(QColor(0xBB, 0x66, 0x00))
+                elif cand.get("amount_matched"):
                     item.setForeground(QColor(0x00, 0x88, 0x00))
                 self._candidate_list.addItem(item)
 
