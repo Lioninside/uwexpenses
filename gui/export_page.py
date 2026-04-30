@@ -98,11 +98,12 @@ def _business_transactions(s: storage.SessionData) -> list:
 
 
 def _assign_receipt_numbers(s: storage.SessionData, business_txs: list) -> None:
-    # Sort by date, then assign R001, R002 ...
     sorted_txs = sorted(business_txs, key=lambda tx: tx["date"])
     s.receipt_numbers = {}
     for i, tx in enumerate(sorted_txs, 1):
-        s.receipt_numbers[tx["id"]] = f"R{i:03d}"
+        has_receipt = s.matches.get(tx["id"]) not in (None, "", NO_RECEIPT, NEEDS_REVIEW)
+        prefix = "R" if has_receipt else "M"
+        s.receipt_numbers[tx["id"]] = f"{prefix}{i:03d}"
 
 
 def _find_template(folder: Path) -> Optional[Path]:
