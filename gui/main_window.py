@@ -58,7 +58,7 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self.setCentralWidget(self._stack)
 
-        self._page_start    = StartPage(on_continue=self._go_pdf)
+        self._page_start    = StartPage(on_continue=self._go_pdf, version=self._version)
         self._page_pdf      = PdfParsePage(on_continue=self._go_receipts)
         self._page_receipts = ReceiptIndexPage(on_continue=self._go_review)
         self._page_review   = CombinedReviewPage(on_continue=self._go_export)

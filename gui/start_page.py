@@ -16,9 +16,11 @@ import core.storage as storage
 class StartPage(QWidget):
     """First page the user sees."""
 
-    def __init__(self, on_continue: Callable[[storage.SessionData], None]) -> None:
+    def __init__(self, on_continue: Callable[[storage.SessionData], None],
+                 version: str = "") -> None:
         super().__init__()
         self._on_continue = on_continue
+        self._version = version
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -32,7 +34,10 @@ class StartPage(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(title)
 
-        sub = QLabel("Monatliche Spesenabrechnung – Revolut + Belege")
+        ver_text = f"Monatliche Spesenabrechnung – Revolut + Belege"
+        if self._version:
+            ver_text += f"   |   v{self._version}"
+        sub = QLabel(ver_text)
         sub.setObjectName("status")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(sub)
