@@ -400,19 +400,11 @@ class CombinedReviewPage(QWidget):
             self._preview_label.setText(f"Datei nicht gefunden:\n{working_name}")
             return
         if path.suffix.lower() == ".pdf":
-            rendered = self._try_render_pdf(path)
-            if rendered:
-                path = rendered
-            else:
-                self._preview_label.setText(
-                    f"PDF-Beleg\n\n{path.name}\n\n"
-                    "Vorschau nicht verfuegbar.\n"
-                    "install.bat erneut ausfuehren."
-                )
-                return
-        pixmap = QPixmap(str(path))
-        if pixmap.isNull():
-            self._preview_label.setText("Vorschau nicht verfuegbar.")
+            pixmap = self._render_pdf_to_pixmap(path)
+        else:
+            pixmap = QPixmap(str(path))
+        if pixmap is None or pixmap.isNull():
+            self._preview_label.setText("Vorschau nicht verfuegbar.\ninstall.bat erneut ausfuehren.")
             return
         self._current_pixmap = pixmap
         self._apply_preview_transform()
@@ -425,29 +417,18 @@ class CombinedReviewPage(QWidget):
                 f"{receipt['image_datetime']}  ({receipt['source']})"
             )
 
-    def _try_render_pdf(self, path: Path) -> Optional[Path]:
-        import tempfile
-        # PyMuPDF – pure Python, no external binary required
+    def _render_pdf_to_pixmap(self, path: Path) -> Optional[QPixmap]:
         try:
             import fitz
             doc = fitz.open(str(path))
             pix = doc[0].get_pixmap(matrix=fitz.Matrix(2, 2))
-            tmp = Path(tempfile.mktemp(suffix=".png"))
-            pix.save(str(tmp))
-            return tmp
+            img_bytes = pix.tobytes("png")
+            doc.close()
+            pixmap = QPixmap()
+            pixmap.loadFromData(img_bytes)
+            return pixmap
         except Exception:
-            pass
-        # pdf2image fallback (requires poppler)
-        try:
-            from pdf2image import convert_from_path
-            pages = convert_from_path(str(path), dpi=120, first_page=1, last_page=1)
-            if pages:
-                tmp = Path(tempfile.mktemp(suffix=".png"))
-                pages[0].save(str(tmp), "PNG")
-                return tmp
-        except Exception:
-            pass
-        return None
+            return None
 
     def _apply_preview_transform(self) -> None:
         if self._current_pixmap is None or self._current_pixmap.isNull():

@@ -167,62 +167,50 @@ def _draw_pdf_receipt(
     x: float, y: float, w: float, h: float,
     slot: Dict,
 ) -> None:
-    """
-    Try to render the first page of a PDF receipt as an image.
-    Falls back to an info block if pdf2image/poppler is unavailable.
-    """
-    rendered = _try_render_pdf_page(path)
-    if rendered:
-        _draw_image(c, rendered, x, y, w, h)
+    reader = _pdf_page_to_reader(path)
+    if reader:
+        iw, ih = reader.getSize()
+        aspect = iw / ih
+        if w / aspect <= h:
+            dw, dh = w, w / aspect
+        else:
+            dh, dw = h, h * aspect
+        cx = x + (w - dw) / 2
+        cy = y + (h - dh) / 2
+        c.drawImage(reader, cx, cy, width=dw, height=dh)
         return
 
-    # Informative placeholder
+    # Fallback placeholder when PyMuPDF unavailable
     c.setFillColor(colors.HexColor("#EEF4FA"))
     c.setStrokeColor(colors.HexColor("#1F4E79"))
     c.rect(x, y, w, h, fill=1, stroke=1)
-
     c.setFillColor(colors.HexColor("#1F4E79"))
     c.setFont("Helvetica-Bold", 12)
     c.drawCentredString(x + w / 2, y + h * 0.65, "PDF-Beleg")
-
     c.setFont("Helvetica", 10)
     c.setFillColor(colors.HexColor("#333333"))
     c.drawCentredString(x + w / 2, y + h * 0.50, path.name)
-    c.drawCentredString(
-        x + w / 2, y + h * 0.38,
-        "Original-PDF befindet sich im Ordner 01_working/"
-    )
-
+    c.drawCentredString(x + w / 2, y + h * 0.38,
+                        "Original-PDF: Ordner 01_working/")
     c.setFont("Helvetica-Oblique", 8)
     c.setFillColor(colors.HexColor("#888888"))
-    c.drawCentredString(
-        x + w / 2, y + h * 0.18,
-        "Tipp: install.bat erneut ausfuehren (pymupdf)"
-    )
+    c.drawCentredString(x + w / 2, y + h * 0.18,
+                        "install.bat erneut ausfuehren (pymupdf)")
 
 
-def _try_render_pdf_page(path: Path) -> Optional[Path]:
-    """Render first page of a PDF to a temp PNG. Tries PyMuPDF then pdf2image."""
-    import tempfile
+def _pdf_page_to_reader(path: Path):
+    """Render first PDF page to an in-memory ImageReader for ReportLab."""
+    import io
     try:
         import fitz
+        from reportlab.lib.utils import ImageReader
         doc = fitz.open(str(path))
         pix = doc[0].get_pixmap(matrix=fitz.Matrix(2, 2))
-        tmp = Path(tempfile.mktemp(suffix=".png"))
-        pix.save(str(tmp))
-        return tmp
+        buf = io.BytesIO(pix.tobytes("png"))
+        doc.close()
+        return ImageReader(buf)
     except Exception:
-        pass
-    try:
-        from pdf2image import convert_from_path
-        pages = convert_from_path(str(path), dpi=150, first_page=1, last_page=1)
-        if pages:
-            tmp = Path(tempfile.mktemp(suffix=".png"))
-            pages[0].save(str(tmp), "PNG")
-            return tmp
-    except Exception:
-        pass
-    return None
+        return None
 
 
 def _draw_placeholder(
