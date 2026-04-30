@@ -12,17 +12,16 @@ Button logic
   Geschaeftlich: Kein Beleg → classification=business, match=NO_RECEIPT, next
   Geschaeftlich + Beleg     → classification=business, match=<selected>, next
 """
-import shutil
 from datetime import date as _date, datetime as _datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QKeySequence, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QSplitter, QVBoxLayout, QWidget, QProgressBar,
+    QScrollArea, QSplitter, QVBoxLayout, QWidget, QProgressBar,
 )
 
 import core.storage as storage
@@ -52,6 +51,9 @@ class CombinedReviewPage(QWidget):
         self._session: storage.SessionData = None
         self._all_txs: List[dict] = []
         self._current_idx: int = 0
+        self._preview_rotation: int = 0   # 0 / 90 / 180 / 270
+        self._preview_zoom: float = 1.0   # 1.0 = fit, >1 zoomed in
+        self._current_pixmap: Optional[QPixmap] = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -118,11 +120,48 @@ class CombinedReviewPage(QWidget):
         rl.setContentsMargins(8, 0, 0, 0)
         preview_group = QGroupBox("Vorschau")
         pg = QVBoxLayout(preview_group)
+
+        # Zoom / rotate toolbar
+        zoom_row = QHBoxLayout()
+        btn_zoom_out = QPushButton("−")
+        btn_zoom_out.setFixedWidth(32)
+        btn_zoom_out.setToolTip("Verkleinern  (Strg+−)")
+        btn_zoom_out.clicked.connect(self._zoom_out)
+        zoom_row.addWidget(btn_zoom_out)
+        self._zoom_label = QLabel("100%")
+        self._zoom_label.setFixedWidth(44)
+        self._zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._zoom_label.setToolTip("Klicken: Zoom zuruecksetzen")
+        self._zoom_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._zoom_label.mousePressEvent = lambda _: self._reset_zoom()
+        zoom_row.addWidget(self._zoom_label)
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedWidth(32)
+        btn_zoom_in.setToolTip("Vergroessern  (Strg++)")
+        btn_zoom_in.clicked.connect(self._zoom_in)
+        zoom_row.addWidget(btn_zoom_in)
+        zoom_row.addSpacing(12)
+        btn_rotate = QPushButton("↺ 90°")
+        btn_rotate.setFixedWidth(60)
+        btn_rotate.setToolTip("90° im Uhrzeigersinn drehen")
+        btn_rotate.clicked.connect(self._rotate_preview)
+        zoom_row.addWidget(btn_rotate)
+        zoom_row.addStretch()
+        pg.addLayout(zoom_row)
+
+        # Scrollable image area
+        self._preview_scroll = QScrollArea()
+        self._preview_scroll.setWidgetResizable(False)
+        self._preview_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_scroll.setStyleSheet("background: #F0F0F0; border: 1px solid #CCC;")
+        self._preview_scroll.setMinimumSize(380, 480)
         self._preview_label = QLabel("Kein Beleg ausgewaehlt")
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_label.setMinimumSize(380, 480)
-        self._preview_label.setStyleSheet("background: #F0F0F0; border: 1px solid #CCC;")
-        pg.addWidget(self._preview_label, stretch=1)
+        self._preview_label.setStyleSheet("background: #F0F0F0;")
+        self._preview_scroll.setWidget(self._preview_label)
+        pg.addWidget(self._preview_scroll, stretch=1)
+
         self._preview_info = QLabel("")
         self._preview_info.setObjectName("status")
         self._preview_info.setWordWrap(True)
@@ -160,6 +199,7 @@ class CombinedReviewPage(QWidget):
         self._btn_confirm.setObjectName("btn_business")
         self._btn_confirm.setFixedHeight(38)
         self._btn_confirm.clicked.connect(self._mark_business_with_receipt)
+        self._btn_confirm.setShortcut(QKeySequence(Qt.Key.Key_Return))
         row1.addWidget(self._btn_confirm)
         ag.addLayout(row1)
 
@@ -230,6 +270,13 @@ class CombinedReviewPage(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh(self) -> None:
+        self._preview_rotation = 0
+        self._preview_zoom = 1.0
+        self._current_pixmap = None
+        self._preview_label.setText("Kein Beleg ausgewaehlt")
+        self._preview_info.setText("")
+        self._zoom_label.setText("100%")
+
         txs = self._all_txs
         if not txs:
             self._status_label.setText("Keine Transaktionen vorhanden.")
@@ -325,12 +372,14 @@ class CombinedReviewPage(QWidget):
 
     def _on_candidate_selected(self, current, _prev) -> None:
         if not current:
+            self._current_pixmap = None
             self._preview_label.setText("Kein Beleg ausgewaehlt")
             self._preview_info.setText("")
             return
         self._show_preview(current.data(Qt.ItemDataRole.UserRole))
 
     def _show_preview(self, working_name: str) -> None:
+        self._current_pixmap = None
         if not working_name or not self._session.output_dir:
             self._preview_label.setText("Kein Bild")
             return
@@ -343,7 +392,6 @@ class CombinedReviewPage(QWidget):
             if rendered:
                 path = rendered
             else:
-                self._preview_label.setPixmap(QPixmap())
                 self._preview_label.setText(
                     f"PDF-Beleg\n\n{path.name}\n\n"
                     "Vorschau: poppler installieren\n(pip install pdf2image)"
@@ -353,12 +401,8 @@ class CombinedReviewPage(QWidget):
         if pixmap.isNull():
             self._preview_label.setText("Vorschau nicht verfuegbar.")
             return
-        scaled = pixmap.scaled(
-            self._preview_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._preview_label.setPixmap(scaled)
+        self._current_pixmap = pixmap
+        self._apply_preview_transform()
         receipt = next(
             (r for r in self._session.receipts if r["working_filename"] == working_name), None
         )
@@ -380,6 +424,51 @@ class CombinedReviewPage(QWidget):
         except Exception:
             pass
         return None
+
+    def _apply_preview_transform(self) -> None:
+        if self._current_pixmap is None or self._current_pixmap.isNull():
+            return
+        pixmap = self._current_pixmap
+        if self._preview_rotation != 0:
+            transform = QTransform().rotate(self._preview_rotation)
+            pixmap = pixmap.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+        viewport = self._preview_scroll.viewport()
+        vw = max(viewport.width() - 4, 50)
+        vh = max(viewport.height() - 4, 50)
+        if self._preview_zoom == 1.0:
+            scaled = pixmap.scaled(vw, vh, Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+            self._preview_label.setPixmap(scaled)
+            self._preview_label.resize(vw, vh)
+        else:
+            fit = pixmap.scaled(vw, vh, Qt.AspectRatioMode.KeepAspectRatio)
+            target_w = int(fit.width() * self._preview_zoom)
+            target_h = int(fit.height() * self._preview_zoom)
+            scaled = pixmap.scaled(target_w, target_h, Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+            self._preview_label.setPixmap(scaled)
+            self._preview_label.resize(scaled.width(), scaled.height())
+        self._zoom_label.setText(f"{int(self._preview_zoom * 100)}%")
+
+    def _zoom_in(self) -> None:
+        if self._current_pixmap is not None:
+            self._preview_zoom = min(self._preview_zoom + 0.25, 4.0)
+            self._apply_preview_transform()
+
+    def _zoom_out(self) -> None:
+        if self._current_pixmap is not None:
+            self._preview_zoom = max(self._preview_zoom - 0.25, 0.25)
+            self._apply_preview_transform()
+
+    def _reset_zoom(self) -> None:
+        if self._current_pixmap is not None:
+            self._preview_zoom = 1.0
+            self._apply_preview_transform()
+
+    def _rotate_preview(self) -> None:
+        if self._current_pixmap is not None:
+            self._preview_rotation = (self._preview_rotation + 90) % 360
+            self._apply_preview_transform()
 
     # ------------------------------------------------------------------
     # Action handlers

@@ -165,8 +165,11 @@ class PdfParsePage(QWidget):
                 return p
 
         folder = Path(self._session.folder)
-        csvs = list(folder.glob("*.csv")) + list(folder.glob("*.CSV"))
-        pdfs = list(folder.glob("*.pdf")) + list(folder.glob("*.PDF"))
+        # Use iterdir + suffix.lower() to avoid duplicates on case-insensitive
+        # file systems (Windows glob("*.csv") + glob("*.CSV") returns same file twice)
+        all_files = [p for p in folder.iterdir() if p.is_file()]
+        csvs = [p for p in all_files if p.suffix.lower() == ".csv"]
+        pdfs = [p for p in all_files if p.suffix.lower() == ".pdf"]
 
         if len(csvs) == 1:
             return csvs[0]
