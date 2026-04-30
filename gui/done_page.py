@@ -11,9 +11,12 @@ import core.storage as storage
 
 
 class DonePage(QWidget):
-    def __init__(self, on_restart: Callable[[], None]) -> None:
+    def __init__(self, on_restart: Callable[[], None],
+                 on_back: Callable[[storage.SessionData], None] = None) -> None:
         super().__init__()
         self._on_restart = on_restart
+        self._on_back = on_back
+        self._session: storage.SessionData = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -46,15 +49,22 @@ class DonePage(QWidget):
         root.addStretch()
 
         btn_row = QHBoxLayout()
+        self._btn_back = QPushButton("<- Export wiederholen / Belege ergaenzen")
+        self._btn_back.clicked.connect(self._go_back)
+        btn_row.addWidget(self._btn_back)
         btn_row.addStretch()
         btn = QPushButton("Neue Abrechnung starten")
         btn.setFixedHeight(40)
         btn.clicked.connect(self._on_restart)
         btn_row.addWidget(btn)
-        btn_row.addStretch()
         root.addLayout(btn_row)
 
+    def _go_back(self) -> None:
+        if self._on_back and self._session:
+            self._on_back(self._session)
+
     def load_session(self, session: storage.SessionData) -> None:
+        self._session = session
         out = session.output_dir or session.folder
         self._out_label.setText(
             f"Output gespeichert in:\n{out}\n\n"

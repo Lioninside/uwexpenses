@@ -22,6 +22,7 @@ from openpyxl.utils import get_column_letter
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
 _ALT_FILL = PatternFill("solid", fgColor="D6E4F0")
+_SWISS_FILL = PatternFill("solid", fgColor="FFD6D6")   # light red for Swiss rows
 _THIN = Side(style="thin", color="AAAAAA")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
@@ -33,6 +34,7 @@ _EXPENSE_COLS = [
     ("Wrg",           6),
     ("Betrag in FW", 14),
     ("Betrag in CHF",14),
+    ("Schweiz",       10),
 ]
 
 
@@ -46,8 +48,9 @@ def _write_header(ws, row: int, cols: List[tuple]) -> None:
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
 
-def _write_data_row(ws, row: int, values: List, alternate: bool = False) -> None:
-    fill = _ALT_FILL if alternate else None
+def _write_data_row(ws, row: int, values: List, alternate: bool = False,
+                    swiss: bool = False) -> None:
+    fill = _SWISS_FILL if swiss else (_ALT_FILL if alternate else None)
     for col_idx, value in enumerate(values, 1):
         cell = ws.cell(row=row, column=col_idx, value=value)
         cell.border = _BORDER
@@ -73,6 +76,7 @@ def create_excel(
     matches: Dict[str, str],
     justifications: Dict[str, str],
     receipt_numbers: Dict[str, str],
+    swiss_flags: Dict[str, bool],
     issues: List[str],
 ) -> None:
     """Write the complete Excel file to *output_path*."""
@@ -87,7 +91,7 @@ def create_excel(
 
     # ---- Sheet 1: Expense report ----
     _write_expense_sheet(wb, business_transactions, receipt_numbers,
-                         justifications, matches)
+                         justifications, matches, swiss_flags)
 
     # ---- Sheet 2: All transactions ----
     _write_all_transactions_sheet(wb, all_transactions)
@@ -113,6 +117,7 @@ def _write_expense_sheet(
     receipt_numbers: Dict[str, str],
     justifications: Dict[str, str],
     matches: Dict[str, str],
+    swiss_flags: Dict[str, bool],
 ) -> None:
     sheet_name = "Spesenabrechnung"
     if sheet_name in wb.sheetnames:
@@ -134,6 +139,7 @@ def _write_expense_sheet(
         begruendung = justifications.get(tx["id"], "")
         wrg = tx.get("currency", "CHF")
         amount = tx.get("amount", 0.0) or 0.0
+        is_swiss = swiss_flags.get(tx["id"], False)
 
         if wrg == "CHF":
             betrag_fw = ""
@@ -144,7 +150,8 @@ def _write_expense_sheet(
 
         _write_data_row(ws, row_idx, [
             tx_date, beleg, ort, begruendung, wrg, betrag_fw, betrag_chf,
-        ], alternate=(row_idx % 2 == 0))
+            "Ja" if is_swiss else "Nein",
+        ], alternate=(row_idx % 2 == 0), swiss=is_swiss)
 
     # Auto-filter
     ws.auto_filter.ref = f"A1:{get_column_letter(len(_EXPENSE_COLS))}1"

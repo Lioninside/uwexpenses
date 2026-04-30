@@ -27,6 +27,8 @@ class SessionData:
     matches: Dict[str, str] = field(default_factory=dict)
     # tx_id -> free-text justification / business purpose
     justifications: Dict[str, str] = field(default_factory=dict)
+    # tx_id -> True if the expense is a domestic Switzerland transaction
+    swiss_flags: Dict[str, bool] = field(default_factory=dict)
     # tx_id -> "R001" etc., assigned at export time
     receipt_numbers: Dict[str, str] = field(default_factory=dict)
     output_dir: str = ""

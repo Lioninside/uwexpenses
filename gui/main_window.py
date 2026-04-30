@@ -62,8 +62,8 @@ class MainWindow(QMainWindow):
         self._page_pdf      = PdfParsePage(on_continue=self._go_receipts)
         self._page_receipts = ReceiptIndexPage(on_continue=self._go_review)
         self._page_review   = CombinedReviewPage(on_continue=self._go_export)
-        self._page_export   = ExportPage(on_done=self._go_done)
-        self._page_done     = DonePage(on_restart=self._go_start)
+        self._page_export   = ExportPage(on_done=self._go_done, on_back=self._go_review)
+        self._page_done     = DonePage(on_restart=self._go_start, on_back=self._go_export)
 
         for page in [
             self._page_start,

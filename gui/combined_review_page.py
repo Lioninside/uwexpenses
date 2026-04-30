@@ -19,7 +19,7 @@ from typing import Callable, List, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QScrollArea, QSplitter, QVBoxLayout, QWidget, QProgressBar,
 )
@@ -203,6 +203,17 @@ class CombinedReviewPage(QWidget):
         row1.addWidget(self._btn_confirm)
         ag.addLayout(row1)
 
+        row2 = QHBoxLayout()
+        self._chk_swiss = QCheckBox("Schweiz / Inland  (Quittung inkl. MwSt.)")
+        self._chk_swiss.setChecked(False)  # default: non-Swiss
+        self._chk_swiss.setToolTip(
+            "Aktivieren wenn die Ausgabe in der Schweiz getätigt wurde.\n"
+            "Schweizer Belege erhalten im PDF einen roten Balken."
+        )
+        row2.addWidget(self._chk_swiss)
+        row2.addStretch()
+        ag.addLayout(row2)
+
         root.addWidget(action_group)
 
         # ── Nav row ───────────────────────────────────────────────────
@@ -311,10 +322,11 @@ class CombinedReviewPage(QWidget):
             self._tx_fee.setText("—")
             self._tx_fee.setStyleSheet("")
 
-        # Restore justification if already set
+        # Restore justification and Switzerland flag if already set
         self._justification.setText(
             self._session.justifications.get(tx["id"], "")
         )
+        self._chk_swiss.setChecked(self._session.swiss_flags.get(tx["id"], False))
 
         # Highlight current classification
         cls = self._session.classifications.get(tx["id"], "")
@@ -488,6 +500,7 @@ class CombinedReviewPage(QWidget):
             self._session.justifications[tx["id"]] = just
         elif not self._session.justifications.get(tx["id"]):
             self._session.justifications[tx["id"]] = tx.get("description", "")
+        self._session.swiss_flags[tx["id"]] = self._chk_swiss.isChecked()
         storage.save(self._session)
         self._go_next()
 

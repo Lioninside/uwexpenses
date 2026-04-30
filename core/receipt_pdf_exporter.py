@@ -32,12 +32,14 @@ def create_receipt_pdf(
     matches: Dict[str, str],
     receipts: List[Dict],
     justifications: Dict[str, str],
+    swiss_flags: Optional[Dict[str, bool]] = None,
 ) -> List[str]:
     """
     Generate the two-receipts-per-page PDF.
     Returns a list of warning strings.
     """
     warnings: List[str] = []
+    swiss_flags = swiss_flags or {}
     receipt_map = {r["working_filename"]: r for r in receipts}
 
     ordered = sorted(
@@ -77,6 +79,7 @@ def create_receipt_pdf(
             "currency": tx.get("currency", "CHF"),
             "image_path": image_path,
             "is_pdf": is_pdf_receipt,
+            "is_swiss": swiss_flags.get(tx["id"], False),
         })
 
     for i in range(0, len(slots), 2):
@@ -99,13 +102,15 @@ def _draw_page(c: Canvas, top: Dict, bottom: Optional[Dict]) -> None:
 def _draw_slot(c: Canvas, slot: Dict, y_top: float) -> None:
     x, w, h = MARGIN, SLOT_W, SLOT_H
 
+    bar_color = colors.HexColor("#C00000") if slot.get("is_swiss") else colors.HexColor("#1F4E79")
+
     # Outer border
-    c.setStrokeColor(colors.HexColor("#1F4E79"))
+    c.setStrokeColor(bar_color)
     c.setLineWidth(0.5)
     c.rect(x, y_top - h, w, h)
 
     # Label bar
-    c.setFillColor(colors.HexColor("#1F4E79"))
+    c.setFillColor(bar_color)
     c.rect(x, y_top - LABEL_H, w, LABEL_H, fill=1, stroke=0)
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 10)

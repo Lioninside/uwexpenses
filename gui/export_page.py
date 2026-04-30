@@ -60,6 +60,7 @@ class _ExportWorker(QThread):
                 matches=s.matches,
                 justifications=s.justifications,
                 receipt_numbers=s.receipt_numbers,
+                swiss_flags=s.swiss_flags,
                 issues=[],
             )
             self.progress.emit(f"Excel gespeichert: {excel_path.name}")
@@ -75,6 +76,7 @@ class _ExportWorker(QThread):
                 matches=s.matches,
                 receipts=s.receipts,
                 justifications=s.justifications,
+                swiss_flags=s.swiss_flags,
             )
             issues.extend(pdf_issues)
             self.progress.emit(f"Beleg-PDF gespeichert: {pdf_path.name}")
@@ -111,9 +113,11 @@ def _find_template(folder: Path) -> Optional[Path]:
 
 
 class ExportPage(QWidget):
-    def __init__(self, on_done: Callable[[storage.SessionData], None]) -> None:
+    def __init__(self, on_done: Callable[[storage.SessionData], None],
+                 on_back: Callable[[storage.SessionData], None] = None) -> None:
         super().__init__()
         self._on_done = on_done
+        self._on_back = on_back
         self._session: storage.SessionData = None
         self._setup_ui()
 
@@ -166,6 +170,9 @@ class ExportPage(QWidget):
         root.addStretch()
 
         nav = QHBoxLayout()
+        self._btn_back = QPushButton("<- Belege ergaenzen")
+        self._btn_back.clicked.connect(self._go_back)
+        nav.addWidget(self._btn_back)
         nav.addStretch()
         self._btn_export = QPushButton("Export starten")
         self._btn_export.setFixedHeight(40)
@@ -176,6 +183,10 @@ class ExportPage(QWidget):
         self._btn_done.clicked.connect(lambda: self._on_done(self._session))
         nav.addWidget(self._btn_done)
         root.addLayout(nav)
+
+    def _go_back(self) -> None:
+        if self._on_back and self._session:
+            self._on_back(self._session)
 
     def load_session(self, session: storage.SessionData) -> None:
         self._session = session
