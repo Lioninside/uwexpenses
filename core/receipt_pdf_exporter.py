@@ -193,32 +193,36 @@ def _draw_pdf_receipt(
         "Original-PDF befindet sich im Ordner 01_working/"
     )
 
-    # Small hint about poppler
     c.setFont("Helvetica-Oblique", 8)
     c.setFillColor(colors.HexColor("#888888"))
     c.drawCentredString(
         x + w / 2, y + h * 0.18,
-        "Tipp: poppler + pdf2image installieren fuer PDF-Vorschau"
+        "Tipp: install.bat erneut ausfuehren (pymupdf)"
     )
 
 
 def _try_render_pdf_page(path: Path) -> Optional[Path]:
-    """
-    Try to render the first page of a PDF to a temp PNG using pdf2image.
-    Returns the temp PNG path, or None if pdf2image/poppler is unavailable.
-    """
+    """Render first page of a PDF to a temp PNG. Tries PyMuPDF then pdf2image."""
+    import tempfile
     try:
-        from pdf2image import convert_from_path
-        import tempfile
-
-        pages = convert_from_path(str(path), dpi=150, first_page=1, last_page=1)
-        if not pages:
-            return None
+        import fitz
+        doc = fitz.open(str(path))
+        pix = doc[0].get_pixmap(matrix=fitz.Matrix(2, 2))
         tmp = Path(tempfile.mktemp(suffix=".png"))
-        pages[0].save(str(tmp), "PNG")
+        pix.save(str(tmp))
         return tmp
     except Exception:
-        return None
+        pass
+    try:
+        from pdf2image import convert_from_path
+        pages = convert_from_path(str(path), dpi=150, first_page=1, last_page=1)
+        if pages:
+            tmp = Path(tempfile.mktemp(suffix=".png"))
+            pages[0].save(str(tmp), "PNG")
+            return tmp
+    except Exception:
+        pass
+    return None
 
 
 def _draw_placeholder(

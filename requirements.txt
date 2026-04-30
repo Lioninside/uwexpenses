@@ -3,16 +3,9 @@ pdfplumber>=0.10.0
 openpyxl>=3.1.0
 Pillow>=10.0.0
 reportlab>=4.0.0
+pymupdf>=1.23.0
 
 # ── Optional features ─────────────────────────────────────────────────────────
-
-# PDF receipt preview (Step 3 preview + exported receipt PDF):
-#   Requires poppler binaries in addition to the pip package.
-#   Windows: https://github.com/oschwartz10612/poppler-windows/releases
-#            extract and add the bin/ folder to PATH
-#   macOS:   brew install poppler
-#   Linux:   sudo apt install poppler-utils
-# pdf2image>=1.16.0
 
 # OCR amount extraction (Step 2 indexing → better receipt matching in Step 3):
 #   easyocr  – pure Python, no system install, downloads ~1.5 GB model on first use
